@@ -1,0 +1,252 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   MediSense — global design tokens
+   Every color used in MediSenseApp.jsx's COLORS object is a var() reference
+   into this file. Toggling `data-theme` on <html> (see ThemeProvider in
+   MediSenseApp.jsx) swaps the whole palette instantly via the CSS cascade —
+   no JS re-render needed for color changes.
+   ========================================================================= */
+
+:root {
+  --color-bg: #F5F5F7;
+  --color-card: #FFFFFF;
+  --color-glass: rgba(255, 255, 255, 0.72);
+  --color-ink: #1C1C1E;
+  --color-ink-soft: #6E6E73;
+  --color-ink-faint: #9A9AA0;
+  --color-hair: rgba(0, 0, 0, 0.07);
+
+  --color-primary: #0A84FF;
+  --color-primary-dark: #0066CC;
+  --color-accent-soft: #E5F2FF;
+  --color-accent-border: #CFE6FF;
+
+  --color-coral: #FF375F;
+  --color-danger-soft: #FFE7ED;
+
+  --color-amber: #FF9F0A;
+  --color-warning-soft: #FFF3E0;
+
+  --color-success: #30D158;
+  --color-success-soft: #E3FBEA;
+
+  --color-cyan: #0A84FF;
+  --color-cyan-soft: #E5F2FF;
+
+  --color-lavender: #BF5AF2;
+  --color-lavender-soft: #F3E4FE;
+
+  --color-info: #0A84FF;
+  --color-info-soft: #E5F2FF;
+  --color-surface-2: #EFEFF3;
+
+  --color-card-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --color-card-shadow-hover: 0 10px 32px rgba(0, 0, 0, 0.10);
+  --color-chip-icon-bg: rgba(255, 255, 255, 0.65);
+
+  --radius-small: 14px;
+  --radius-medium: 20px;
+  --radius-large: 28px;
+}
+
+/* Dark Mode — dimmer backgrounds, brighter/adjusted foregrounds, per
+   Apple's Human Interface Guidelines (colors aren't simple inversions:
+   https://developer.apple.com/design/human-interface-guidelines/dark-mode).
+   Card surfaces sit one step above true black so content still separates
+   from the page without relying on shadow alone. */
+[data-theme="dark"] {
+  --color-bg: #000000;
+  --color-card: #1C1C1E;
+  --color-glass: rgba(28, 28, 30, 0.72);
+  --color-ink: #F5F5F7;
+  --color-ink-soft: #98989D;
+  --color-ink-faint: #6E6E73;
+  --color-hair: rgba(255, 255, 255, 0.09);
+
+  --color-primary: #0A84FF;
+  --color-primary-dark: #64B5FF;
+  --color-accent-soft: rgba(10, 132, 255, 0.18);
+  --color-accent-border: rgba(10, 132, 255, 0.35);
+
+  --color-coral: #FF453A;
+  --color-danger-soft: rgba(255, 69, 58, 0.18);
+
+  --color-amber: #FF9F0A;
+  --color-warning-soft: rgba(255, 159, 10, 0.16);
+
+  --color-success: #30D158;
+  --color-success-soft: rgba(48, 209, 88, 0.16);
+
+  --color-cyan: #0A84FF;
+  --color-cyan-soft: rgba(10, 132, 255, 0.18);
+
+  --color-lavender: #D291FF;
+  --color-lavender-soft: rgba(191, 90, 242, 0.2);
+
+  --color-info: #0A84FF;
+  --color-info-soft: rgba(10, 132, 255, 0.18);
+  --color-surface-2: #232326;
+
+  --color-card-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  --color-card-shadow-hover: 0 10px 32px rgba(0, 0, 0, 0.55);
+  --color-chip-icon-bg: rgba(0, 0, 0, 0.28);
+}
+
+/* Respect the system preference automatically the first time the app runs,
+   before ThemeProvider's stored preference (if any) takes over. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #000000;
+    --color-card: #1C1C1E;
+    --color-glass: rgba(28, 28, 30, 0.72);
+    --color-ink: #F5F5F7;
+    --color-ink-soft: #98989D;
+    --color-ink-faint: #6E6E73;
+    --color-hair: rgba(255, 255, 255, 0.09);
+    --color-primary-dark: #64B5FF;
+    --color-accent-soft: rgba(10, 132, 255, 0.18);
+    --color-accent-border: rgba(10, 132, 255, 0.35);
+    --color-coral: #FF453A;
+    --color-danger-soft: rgba(255, 69, 58, 0.18);
+    --color-warning-soft: rgba(255, 159, 10, 0.16);
+    --color-success-soft: rgba(48, 209, 88, 0.16);
+    --color-cyan-soft: rgba(10, 132, 255, 0.18);
+    --color-lavender: #D291FF;
+    --color-lavender-soft: rgba(191, 90, 242, 0.2);
+    --color-card-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+    --color-card-shadow-hover: 0 10px 32px rgba(0, 0, 0, 0.55);
+    --color-chip-icon-bg: rgba(0, 0, 0, 0.28);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+/* Smooth, native-feeling scrolling everywhere, with momentum on iOS. */
+html {
+  scroll-behavior: smooth;
+}
+body, .medisense-scroll-root, [class*="overflow-y-auto"], [class*="overflow-auto"] {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Every element with a background/border/color transitions smoothly when
+   the theme flips, instead of hard-cutting between light and dark. */
+button, a, input, select, textarea, svg, [class*="rounded-"] {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Thin, calm scrollbars rather than default chunky browser chrome */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.35);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.5); background-clip: content-box; }
+
+::selection { background: rgba(10, 132, 255, 0.25); }
+
+/* Visible, tasteful keyboard focus ring everywhere — never suppressed */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+input, select, button, textarea { font-family: inherit; }
+
+/* Tabular numbers for anything measuring a quantity, so digits don't jitter */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Tailwind's hover:bg-black/5 utility (used for quiet hover states) is
+   tuned for light backgrounds; in dark mode a translucent *white* reads
+   correctly instead. This one rule keeps every existing hover className
+   theme-correct without touching each component. */
+[data-theme="dark"] .hover\:bg-black\/5:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .hover\:bg-black\/5:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+  }
+}
+
+/* Respect reduced-motion preferences globally as a safety net, in addition
+   to the per-component checks already done in MediSenseApp.jsx. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =========================================================================
+   Accessibility settings (Settings → Accessibility)
+   Both are opt-in, user-controlled, and persisted like the theme choice.
+   ========================================================================= */
+
+/* Large Text — scales the root font size so every rem/em-based Tailwind
+   utility (and every px value we wrote as a Tailwind arbitrary size, since
+   those inherit from html font-size via our components' relative units)
+   grows proportionally, without a separate "large" style for each screen. */
+[data-textsize="large"] { font-size: 118%; }
+[data-textsize="larger"] { font-size: 134%; }
+
+/* High Contrast — strengthens borders and text against surfaces beyond
+   the default hairline, and removes reliance on subtle tints for hit
+   targets. Never used as the *only* way status is conveyed (see TrendPill/
+   StatusPill, which already pair icon + text + color everywhere). */
+[data-contrast="high"] {
+  --color-hair: rgba(0, 0, 0, 0.35);
+  --color-ink-soft: #3A3A3C;
+  --color-card-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.4);
+  --color-card-shadow-hover: 0 0 0 1.5px rgba(0, 0, 0, 0.55);
+}
+[data-theme="dark"][data-contrast="high"] {
+  --color-hair: rgba(255, 255, 255, 0.4);
+  --color-ink-soft: #D1D1D6;
+  --color-card-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+  --color-card-shadow-hover: 0 0 0 1.5px rgba(255, 255, 255, 0.5);
+}
+[data-contrast="high"] :focus-visible {
+  outline-width: 3px;
+  outline-offset: 3px;
+}
+
+/* Screen-reader-only text — used for context that's visually redundant
+   (e.g. a card's purpose) but helps non-visual navigation. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* Skip-to-content link — hidden until keyboard-focused, per WCAG 2.4.1. */
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 200;
+  background: var(--color-primary); color: white;
+  padding: 10px 16px; border-radius: 0 0 10px 0; font-size: 14px; font-weight: 600;
+}
+.skip-link:focus {
+  left: 0;
+}
+
