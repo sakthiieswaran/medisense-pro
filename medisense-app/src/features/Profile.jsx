@@ -38,7 +38,7 @@ async function syncAccountData(setData, currentData) {
 
 /* ------------ shared sub-components ------------- */
 
-function SectionCard({ icon: Icon, title, action, onAction, children, className = "" }) {
+function SectionCard({ icon: Icon, title, action, onAction, onCancel, children, className = "" }) {
   return (
     <div className={`rounded-[20px] border mb-4 ${className}`} style={{ background: COLORS.card, borderColor: COLORS.hair, boxShadow: COLORS.cardShadow }}>
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
@@ -46,11 +46,31 @@ function SectionCard({ icon: Icon, title, action, onAction, children, className 
           {Icon && <span className="w-7 h-7 rounded-[10px] flex items-center justify-center" style={{ background: COLORS.mint }}><Icon size={15} color={COLORS.primaryDark} /></span>}
           <span className="font-semibold text-[15px]" style={{ color: COLORS.ink }}>{title}</span>
         </div>
-        {onAction && (
-          <button onClick={onAction} className="text-[12.5px] font-medium px-3 py-1.5 rounded-[10px]" style={{ color: COLORS.primary, background: COLORS.mint }}>
-            {action || "Edit"}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="text-[12.5px] font-medium px-3 py-1.5 rounded-[10px] border transition-opacity hover:opacity-80"
+              style={{ borderColor: COLORS.hair, color: COLORS.inkSoft, background: "transparent" }}
+            >
+              Cancel
+            </button>
+          )}
+          {onAction && (
+            <button
+              type="button"
+              onClick={onAction}
+              className="text-[12.5px] font-medium px-3.5 py-1.5 rounded-[10px] transition-all hover:opacity-90 shadow-sm"
+              style={{
+                color: action === "Done" || action === "Save" ? "#FFFFFF" : COLORS.primary,
+                background: action === "Done" || action === "Save" ? COLORS.primary : COLORS.mint,
+              }}
+            >
+              {action || "Edit"}
+            </button>
+          )}
+        </div>
       </div>
       <div className="px-5 pb-5">{children}</div>
     </div>
@@ -179,13 +199,22 @@ export function ProfileHub({ data, setData, patient, updatePatient }) {
   const [heightCm, setHeightCm] = useState(patient.body?.heightCm != null ? String(patient.body.heightCm) : "");
   const [weightKg, setWeightKg] = useState(latestWeight !== "" ? String(latestWeight) : "");
   const [editSection, setEditSection] = useState(null);
+
+  useEffect(() => {
+    setForm(patient);
+    setGoals(patient.goals || {});
+    setHeightCm(patient.body?.heightCm != null ? String(patient.body.heightCm) : "");
+    const lw = (patient.healthRecords || []).filter((r) => r.weight != null).slice(-1)[0]?.weight ?? "";
+    setWeightKg(lw !== "" ? String(lw) : "");
+  }, [patient]);
+
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const setGoal = (k) => (e) => setGoals((g) => ({ ...g, [k]: e.target.value }));
 
   const liveBmi = computeBMI(Number(weightKg), Number(heightCm));
   const liveBmiInfo = bmiCategory(liveBmi);
 
-  const save = async () => {
+  const save = async (sectionLabel) => {
     const h = heightCm ? Number(heightCm) : null;
     const w = weightKg ? Number(weightKg) : null;
     const stepsNum = goals.dailySteps ? Number(goals.dailySteps) : goals.steps ? Number(goals.steps) : undefined;
@@ -215,7 +244,7 @@ export function ProfileHub({ data, setData, patient, updatePatient }) {
         body: { ...(p.body || {}), heightCm: h, history },
       };
     });
-    toast("Profile updated");
+    toast(sectionLabel ? `${sectionLabel} saved` : "Profile updated");
     setEditSection(null);
   };
 
@@ -236,7 +265,27 @@ export function ProfileHub({ data, setData, patient, updatePatient }) {
       </div>
 
       {/* Personal Info */}
-      <SectionCard icon={User} title="Personal Info" action={editSection === "personal" ? "Done" : "Edit"} onAction={() => setEditSection(editSection === "personal" ? null : "personal")}>
+      <SectionCard
+        icon={User}
+        title="Personal Info"
+        action={editSection === "personal" ? "Done" : "Edit"}
+        onAction={() => {
+          if (editSection === "personal") {
+            save("Personal info");
+          } else {
+            setForm(patient);
+            setEditSection("personal");
+          }
+        }}
+        onCancel={
+          editSection === "personal"
+            ? () => {
+                setForm(patient);
+                setEditSection(null);
+              }
+            : undefined
+        }
+      >
         {editSection === "personal" ? (
           <div className="grid md:grid-cols-2 gap-3">
             <Field label="Name" value={form.name || ""} onChange={set("name")} />
@@ -256,7 +305,31 @@ export function ProfileHub({ data, setData, patient, updatePatient }) {
       </SectionCard>
 
       {/* Medical Profile */}
-      <SectionCard icon={ActivityIcon} title="Medical Profile" action={editSection === "medical" ? "Done" : "Edit"} onAction={() => setEditSection(editSection === "medical" ? null : "medical")}>
+      <SectionCard
+        icon={ActivityIcon}
+        title="Medical Profile"
+        action={editSection === "medical" ? "Done" : "Edit"}
+        onAction={() => {
+          if (editSection === "medical") {
+            save("Medical profile");
+          } else {
+            setForm(patient);
+            setHeightCm(patient.body?.heightCm != null ? String(patient.body.heightCm) : "");
+            setWeightKg(latestWeight !== "" ? String(latestWeight) : "");
+            setEditSection("medical");
+          }
+        }}
+        onCancel={
+          editSection === "medical"
+            ? () => {
+                setForm(patient);
+                setHeightCm(patient.body?.heightCm != null ? String(patient.body.heightCm) : "");
+                setWeightKg(latestWeight !== "" ? String(latestWeight) : "");
+                setEditSection(null);
+              }
+            : undefined
+        }
+      >
         {editSection === "medical" ? (
           <div className="grid md:grid-cols-2 gap-3">
             <Field label="Blood group" value={form.bloodGroup || ""} onChange={set("bloodGroup")} placeholder="e.g. O+" />
@@ -276,7 +349,27 @@ export function ProfileHub({ data, setData, patient, updatePatient }) {
       </SectionCard>
 
       {/* Emergency Contact */}
-      <SectionCard icon={Bell} title="Emergency Contact" action={editSection === "emergency" ? "Done" : "Edit"} onAction={() => setEditSection(editSection === "emergency" ? null : "emergency")}>
+      <SectionCard
+        icon={Bell}
+        title="Emergency Contact"
+        action={editSection === "emergency" ? "Done" : "Edit"}
+        onAction={() => {
+          if (editSection === "emergency") {
+            save("Emergency contact");
+          } else {
+            setForm(patient);
+            setEditSection("emergency");
+          }
+        }}
+        onCancel={
+          editSection === "emergency"
+            ? () => {
+                setForm(patient);
+                setEditSection(null);
+              }
+            : undefined
+        }
+      >
         {editSection === "emergency" ? (
           <Field label="Emergency contact" value={typeof form.emergencyContact === "string" ? form.emergencyContact : (form.emergencyContact?.name ? `${form.emergencyContact.name}${form.emergencyContact.phone ? ` (${form.emergencyContact.phone})` : ""}` : "")} onChange={set("emergencyContact")} />
         ) : (
@@ -291,7 +384,27 @@ export function ProfileHub({ data, setData, patient, updatePatient }) {
       </SectionCard>
 
       {/* Goals */}
-      <SectionCard icon={ChevronRight} title="Health Goals" action={editSection === "goals" ? "Done" : "Edit"} onAction={() => setEditSection(editSection === "goals" ? null : "goals")}>
+      <SectionCard
+        icon={ChevronRight}
+        title="Health Goals"
+        action={editSection === "goals" ? "Done" : "Edit"}
+        onAction={() => {
+          if (editSection === "goals") {
+            save("Health goals");
+          } else {
+            setGoals(patient.goals || {});
+            setEditSection("goals");
+          }
+        }}
+        onCancel={
+          editSection === "goals"
+            ? () => {
+                setGoals(patient.goals || {});
+                setEditSection(null);
+              }
+            : undefined
+        }
+      >
         {editSection === "goals" ? (
           <div className="grid md:grid-cols-2 gap-3">
             <Field label="Daily steps" value={goals.dailySteps ?? goals.steps ?? ""} onChange={setGoal("dailySteps")} type="number" />
@@ -308,7 +421,7 @@ export function ProfileHub({ data, setData, patient, updatePatient }) {
         )}
       </SectionCard>
 
-      <button onClick={save} className="text-[13.5px] font-medium px-5 py-3 rounded-[12px] text-white" style={{ background: COLORS.primary }}>
+      <button onClick={() => save("Profile")} className="text-[13.5px] font-medium px-5 py-3 rounded-[12px] text-white hover:opacity-90 transition-opacity" style={{ background: COLORS.primary }}>
         Save all changes
       </button>
     </div>

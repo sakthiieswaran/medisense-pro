@@ -166,9 +166,20 @@ function AppShell({ data, setData, session, onLogout }) {
   }, [role]);
 
   const updatePatient = useCallback(async (pid, updater) => {
-    const patients = data.patients.map((p) => (p.id === pid ? updater(p) : p));
+    let updatedPatient = null;
+    const patients = data.patients.map((p) => {
+      if (p.id === pid) {
+        updatedPatient = updater(p);
+        return updatedPatient;
+      }
+      return p;
+    });
+    if (updatedPatient && session?.patientId === pid && updatedPatient.name && updatedPatient.name !== session.name) {
+      const nextSess = { ...session, name: updatedPatient.name };
+      try { await window.storage.set(SESSION_KEY, JSON.stringify(nextSess), false); } catch {}
+    }
     await setData({ ...data, patients });
-  }, [data, setData]);
+  }, [data, setData, session]);
 
   const goTo = useCallback((id, params = {}) => {
     setNavParams(params);
@@ -260,7 +271,7 @@ function AppShell({ data, setData, session, onLogout }) {
       <style>{FONT_IMPORT}</style>
       <a href="#main-content" className="skip-link">Skip to content</a>
       <div className="flex">
-        <Sidebar role={role} user={session} activeId={activeId} onSelect={(id) => goTo(id)} onLogout={onLogout} onSearch={() => setSearchOpen(true)} />
+        <Sidebar role={role} user={{ ...session, name: (role === "patient" && patient?.name) ? patient.name : session.name }} activeId={activeId} onSelect={(id) => goTo(id)} onLogout={onLogout} onSearch={() => setSearchOpen(true)} />
 
         <div className="flex-1 min-w-0">
           <div className="md:hidden flex items-center justify-between px-5 py-4 sticky top-0 z-10"
