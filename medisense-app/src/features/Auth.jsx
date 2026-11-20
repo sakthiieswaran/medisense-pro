@@ -14,7 +14,7 @@ import {
   verifyEmail as apiVerifyEmail,
 } from "../apiStorage.js";
 
-const ALLOW_DEMO = !import.meta.env.PROD;
+const ALLOW_DEMO = !import.meta.env.PROD || !API_BASE;
 
 const ROLES = [
   { id: "patient", label: "Patient", icon: User },
@@ -137,6 +137,10 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
 
       await onAuthenticated(user, { isNewRegistration: mode === "register" });
     } catch (err) {
+      if (err.status === 405 || err.code === "ENDPOINT_NOT_ALLOWED" || err.code === "API_NOT_CONFIGURED") {
+        setError("Backend API is not deployed on this domain. You can continue in Browser Standalone Mode below.");
+        return;
+      }
       const isNetwork =
         err.message?.includes("fetch") ||
         err.message?.includes("NetworkError") ||
@@ -266,6 +270,21 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
               border: "1px solid var(--color-hair)",
             }}
           >
+            {!API_BASE && (
+              <div
+                className="flex items-center justify-between px-3.5 py-1.5 rounded-[10px] mb-4 text-[12px]"
+                style={{
+                  background: "rgba(0, 210, 184, 0.08)",
+                  color: "var(--color-primary)",
+                  border: "1px solid rgba(0, 210, 184, 0.2)",
+                }}
+              >
+                <span className="flex items-center gap-1.5 font-medium">
+                  <ShieldCheck size={13} /> Browser Mode (Standalone)
+                </span>
+                <span className="text-[11px] opacity-75">Saved locally</span>
+              </div>
+            )}
             <h2 className="text-[22px] font-bold tracking-tight mb-1" style={{ color: "var(--color-ink)" }}>
               {titleMap[mode]}
             </h2>
@@ -322,11 +341,22 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
             {error && (
               <div
                 role="alert"
-                className="flex items-start gap-2.5 text-[12.5px] p-3.5 rounded-[12px] mb-4"
+                className="flex flex-col gap-2 text-[12.5px] p-3.5 rounded-[12px] mb-4"
                 style={{ background: "var(--color-danger-soft)", color: "var(--color-coral, #DC2626)" }}
               >
-                <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
-                <span>{error}</span>
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+                {onOfflineDemo && (
+                  <button
+                    type="button"
+                    onClick={() => onOfflineDemo(role)}
+                    className="self-start text-[11.5px] font-semibold underline hover:opacity-85 transition-opacity pl-6"
+                  >
+                    Continue as {role === "doctor" ? "Doctor" : role === "caregiver" ? "Caregiver" : "Patient"} in Browser Mode →
+                  </button>
+                )}
               </div>
             )}
 
@@ -583,7 +613,7 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
                   style={{ borderColor: "var(--color-hair)" }}
                 >
                   <span className="text-[11.5px]" style={{ color: "var(--color-ink-soft)" }}>
-                    Backend not running?
+                    1-Click Instant Access:
                   </span>
                   <div className="flex gap-1.5">
                     <button
@@ -592,7 +622,7 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
                       className="px-2.5 py-1 rounded-[8px] text-[11.5px] font-medium text-white"
                       style={{ background: "var(--color-primary)" }}
                     >
-                      Offline Patient
+                      Patient Demo
                     </button>
                     <button
                       type="button"
@@ -600,7 +630,7 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
                       className="px-2.5 py-1 rounded-[8px] text-[11.5px] font-medium border"
                       style={{ borderColor: "var(--color-hair)", color: "var(--color-ink-soft)" }}
                     >
-                      Offline Doctor
+                      Doctor Demo
                     </button>
                   </div>
                 </div>

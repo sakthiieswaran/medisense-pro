@@ -14,7 +14,7 @@
  *     person hasn't connected an account. Personal vs shared data both map
  *     to localStorage here since backend "sharing" isn't part of this demo.
  */
-import { getToken, remoteGet, remoteSet, remoteDelete, remoteList } from "./apiStorage.js";
+import { isConnected, remoteGet, remoteSet, remoteDelete, remoteList } from "./apiStorage.js";
 
 const PREFIX = "medisense_storage:";
 
@@ -31,7 +31,7 @@ window.storage = {
   lastSyncError: null,
 
   async get(key) {
-    if (getToken()) {
+    if (isConnected()) {
       try {
         const remote = await remoteGet(key);
         window.storage.lastSyncError = null;
@@ -52,7 +52,7 @@ window.storage = {
 
   async set(key, value) {
     localStorage.setItem(PREFIX + key, value);
-    if (getToken()) {
+    if (isConnected()) {
       remoteSet(key, value)
         .then(() => {
           window.storage.lastSyncError = null;
@@ -77,14 +77,14 @@ window.storage = {
   async delete(key) {
     const existed = localStorage.getItem(PREFIX + key) !== null;
     localStorage.removeItem(PREFIX + key);
-    if (getToken()) {
+    if (isConnected()) {
       remoteDelete(key).catch(() => {});
     }
     return { key, deleted: existed, shared: false };
   },
 
   async list(prefix) {
-    if (getToken()) {
+    if (isConnected()) {
       try {
         return await remoteList(prefix);
       } catch {

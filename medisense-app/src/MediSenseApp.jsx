@@ -8,7 +8,7 @@ import {
 } from "./shared.jsx";
 import { buildSeedData } from "./data/seed.js";
 import {
-  whoAmI, logout as apiLogout, getToken, getCachedUser, remoteGet, remoteSet,
+  whoAmI, logout as apiLogout, getToken, getCachedUser, remoteGet, remoteSet, API_BASE,
 } from "./apiStorage.js";
 import { startForegroundReminderLoop } from "./lib/pushNotifications.js";
 
@@ -33,7 +33,7 @@ const DoctorPatientDetail = lazy(() => import("./features/Doctor.jsx").then((m) 
 const DoctorAvailability = lazy(() => import("./features/Doctor.jsx").then((m) => ({ default: m.DoctorAvailability })));
 const DoctorProfile = lazy(() => import("./features/Doctor.jsx").then((m) => ({ default: m.DoctorProfile })));
 
-const ALLOW_DEMO = !import.meta.env.PROD;
+const ALLOW_DEMO = !import.meta.env.PROD || !API_BASE;
 
 function RouteFallback() {
   return (

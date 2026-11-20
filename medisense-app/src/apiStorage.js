@@ -31,10 +31,25 @@ export function resolveApiBase(
 }
 
 export const API_BASE = resolveApiBase();
-export const IS_API_CONFIGURED = Boolean(API_BASE) || !import.meta.env.PROD;
+export const IS_API_CONFIGURED = Boolean(API_BASE);
 
 const TOKEN_KEY = "medisense_auth_token";
 const USER_KEY = "medisense_auth_user";
+const LOCAL_ACCOUNTS_KEY = "medisense_local_accounts";
+
+function getLocalAccounts() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_ACCOUNTS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalAccounts(accs) {
+  try {
+    localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(accs));
+  } catch {}
+}
 
 export function getToken() {
   try {
@@ -67,10 +82,18 @@ function setCachedUser(user) {
 }
 
 export function isConnected() {
-  return !!getToken();
+  return Boolean(getToken() && API_BASE);
 }
 
 async function jsonFetch(path, options = {}) {
+  if (!API_BASE) {
+    const err = new Error(
+      `Cannot execute network request to ${path}: no backend API is configured. Running in Browser/Offline mode.`
+    );
+    err.code = "API_NOT_CONFIGURED";
+    err.status = 0;
+    throw err;
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -96,6 +119,14 @@ async function jsonFetch(path, options = {}) {
     }
   }
   if (!res.ok) {
+    if (res.status === 405) {
+      const err = new Error(
+        `Backend API endpoint (${path}) returned 405 (Method Not Allowed). Static host does not support direct backend APIs. Please configure VITE_API_URL to point to a live backend server.`
+      );
+      err.status = 405;
+      err.code = "ENDPOINT_NOT_ALLOWED";
+      throw err;
+    }
     const err = new Error(body.error || `Request failed (${res.status})`);
     err.status = res.status;
     err.code = body.code;
@@ -143,6 +174,27 @@ export async function checkServerHealth() {
 /* ----------------------------------- auth ---------------------------------- */
 
 export async function register(name, email, password, opts = {}) {
+  if (!API_BASE) {
+    const emailLower = (email || "").toLowerCase().trim();
+    const id = "usr_" + Math.random().toString(36).slice(2, 10);
+    const user = {
+      id,
+      name: name.trim(),
+      email: emailLower,
+      role: opts.role || "patient",
+      consentPrivacy: opts.consentPrivacy ?? true,
+      consentHealthProcessing: opts.consentHealthProcessing ?? true,
+      createdAt: new Date().toISOString(),
+      offline: true,
+    };
+    const accounts = getLocalAccounts();
+    accounts[emailLower] = { ...user, password };
+    saveLocalAccounts(accounts);
+    setToken("local_token_" + id);
+    setCachedUser(user);
+    return user;
+  }
+
   const body = await jsonFetch("/api/auth/register", {
     method: "POST",
     body: JSON.stringify({
@@ -161,6 +213,57 @@ export async function register(name, email, password, opts = {}) {
 }
 
 export async function login(email, password, expectedRole) {
+  if (!API_BASE) {
+    const emailLower = (email || "").toLowerCase().trim();
+
+    // 1. Built-in demo accounts
+    if (emailLower === "alex@medisense.demo" || emailLower === "patient@medisense.demo") {
+      const user = { id: "p1", name: "Alex Mercer", email: emailLower, role: "patient", offline: true };
+      setToken("local_token_p1");
+      setCachedUser(user);
+      return user;
+    }
+    if (emailLower === "priya.caregiver@medisense.demo" || emailLower === "caregiver@medisense.demo") {
+      const user = { id: "c1", name: "Priya Sharma", email: emailLower, role: "caregiver", offline: true };
+      setToken("local_token_c1");
+      setCachedUser(user);
+      return user;
+    }
+    if (emailLower === "dr.chen@medisense.demo" || emailLower === "doctor@medisense.demo") {
+      const user = { id: "d1", name: "Dr. Sarah Chen, MD", email: emailLower, role: "doctor", offline: true };
+      setToken("local_token_d1");
+      setCachedUser(user);
+      return user;
+    }
+
+    // 2. Check accounts registered on this device
+    const accounts = getLocalAccounts();
+    const existing = accounts[emailLower];
+    if (existing) {
+      if (expectedRole && existing.role !== expectedRole) {
+        throw new Error(`This account is registered as a ${existing.role}, not a ${expectedRole}.`);
+      }
+      setToken("local_token_" + existing.id);
+      setCachedUser(existing);
+      return existing;
+    }
+
+    // 3. Fallback: dynamically create local session in standalone mode
+    const user = {
+      id: "usr_" + Math.random().toString(36).slice(2, 10),
+      name: email.split("@")[0],
+      email: emailLower,
+      role: expectedRole || "patient",
+      createdAt: new Date().toISOString(),
+      offline: true,
+    };
+    accounts[emailLower] = { ...user, password };
+    saveLocalAccounts(accounts);
+    setToken("local_token_" + user.id);
+    setCachedUser(user);
+    return user;
+  }
+
   const body = await jsonFetch("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password, expectedRole }),
@@ -174,7 +277,7 @@ export async function logout() {
   const token = getToken();
   setToken(null);
   setCachedUser(null);
-  if (token) {
+  if (token && API_BASE) {
     try {
       await fetch(`${API_BASE}/api/auth/logout`, {
         method: "POST",
@@ -185,12 +288,22 @@ export async function logout() {
 }
 
 export async function whoAmI() {
+  if (!API_BASE) {
+    return getCachedUser();
+  }
   const body = await authFetch("/api/me");
   setCachedUser(body.user);
   return body.user;
 }
 
 export async function forgotPassword(email) {
+  if (!API_BASE) {
+    return {
+      ok: true,
+      message: "Browser Mode: Password reset simulated. You can now set a new password.",
+      devResetToken: "local_reset_token",
+    };
+  }
   return jsonFetch("/api/auth/forgot-password", {
     method: "POST",
     body: JSON.stringify({ email }),
@@ -198,6 +311,9 @@ export async function forgotPassword(email) {
 }
 
 export async function resetPassword(token, newPassword) {
+  if (!API_BASE) {
+    return { ok: true, message: "Browser Mode: Password updated successfully." };
+  }
   return jsonFetch("/api/auth/reset-password", {
     method: "POST",
     body: JSON.stringify({ token, newPassword }),
@@ -205,6 +321,9 @@ export async function resetPassword(token, newPassword) {
 }
 
 export async function verifyEmail(token) {
+  if (!API_BASE) {
+    return { ok: true, message: "Browser Mode: Email verified successfully." };
+  }
   return jsonFetch("/api/auth/verify-email", {
     method: "POST",
     body: JSON.stringify({ token }),
@@ -212,6 +331,17 @@ export async function verifyEmail(token) {
 }
 
 export async function deleteAccount(password) {
+  if (!API_BASE) {
+    const cached = getCachedUser();
+    if (cached?.email) {
+      const accounts = getLocalAccounts();
+      delete accounts[cached.email.toLowerCase()];
+      saveLocalAccounts(accounts);
+    }
+    setToken(null);
+    setCachedUser(null);
+    return { ok: true };
+  }
   const res = await authFetch("/api/auth/account", {
     method: "DELETE",
     body: JSON.stringify({ password }),
@@ -224,18 +354,22 @@ export async function deleteAccount(password) {
 /* ------------------------------- data storage ------------------------------ */
 
 export async function remoteGet(key) {
+  if (!API_BASE) throw new Error("No backend configured");
   return authFetch(`/api/data/${encodeURIComponent(key)}`);
 }
 export async function remoteSet(key, value) {
+  if (!API_BASE) throw new Error("No backend configured");
   return authFetch(`/api/data/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: JSON.stringify({ value }),
   });
 }
 export async function remoteDelete(key) {
+  if (!API_BASE) throw new Error("No backend configured");
   return authFetch(`/api/data/${encodeURIComponent(key)}`, { method: "DELETE" });
 }
 export async function remoteList(prefix) {
+  if (!API_BASE) throw new Error("No backend configured");
   const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
   return authFetch(`/api/data${qs}`);
 }
@@ -306,6 +440,11 @@ export async function deleteDocument(id) {
 /* ----------------------------------- AI ------------------------------------ */
 
 export async function askAI({ messages, patientContext, stream = true, onChunk }) {
+  if (!API_BASE) {
+    const err = new Error("Gemini AI assistant requires a live MediSense backend server with GEMINI_API_KEY configured.");
+    err.code = "AI_NOT_CONFIGURED";
+    throw err;
+  }
   const token = getToken();
   if (!token) {
     const err = new Error("Connect to the MediSense server (sign in with an account) to use AI Insights.");
