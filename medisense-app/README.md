@@ -1,155 +1,82 @@
 # MediSense
 
-A unified personal health platform — **Today**, **Health**, **Medications**,
-**Records**, **Care**, and **Insights** for patients, plus a roster,
-prescribing, availability, and sharing-aware patient views for doctors.
-Apple Health–inspired information architecture and visual language, with
-MediSense's own branding — light/dark mode, adjustable text size, a high
-contrast mode, and an optional real backend for accounts and cross-device
-sync.
+MediSense is a unified personal healthcare management platform built with React 18, Vite, Tailwind CSS, React Router, and an Express + SQLite backend.
 
-This is a complete, standalone project — unzip it and run it, no other setup
-required.
+It provides tailored experiences for **Patients** (Today, Health, Medications, Records, Care, Insights, Profile/Settings/Privacy), **Caregivers** (permission-filtered medication monitoring, missed-dose alerts, and shared vitals), and **Doctors** (patient roster, prescribing with live allergy & drug-interaction alerts, availability management, consultation notes, and sharing-aware patient views).
 
-## Quick start (frontend only)
+## Quick start (full-stack local development)
 
-The app works fully offline with **zero backend setup** — all data lives in
-your browser's localStorage, seeded with a realistic demo dataset (3
-patients, ~13 months of vitals history, medications, activity, sleep,
-nutrition, lab results, and more).
+Prerequisites: **Node.js 24+** (uses built-in `node:sqlite`).
 
 ```bash
-npm install
-npm run dev
-```
-
-Open the URL Vite prints (usually `http://localhost:5173`).
-
-Demo logins (any password works in this mode):
-- Patient: `alex@medisense.demo`
-- Doctor: `dr.chen@medisense.demo`
-
-## Full setup (with real accounts + cross-device sync)
-
-The `server/` folder is a small Express API with bcrypt-hashed passwords,
-JWT sessions, and a persistent per-user data store. It's optional — the app
-degrades gracefully to localStorage if it isn't running.
-
-```bash
-# Terminal 1 — backend
+# Terminal 1 — backend API + SQLite
 cd server
 npm install
-cp .env.example .env      # then edit JWT_SECRET to a real random value
+cp .env.example .env      # add GEMINI_API_KEY if using Gemini AI features
 npm start                 # listens on http://localhost:4000
 
-# Terminal 2 — frontend
+# Terminal 2 — frontend web app
 npm install
-npm run dev                # listens on http://localhost:5173
+cp .env.example .env      # sets VITE_API_URL=http://localhost:4000
+npm run dev               # listens on http://localhost:5173
 ```
 
-Then in the running app: **Settings → Account Sync** → create an account.
-From then on your data backs up to the server automatically and follows you
-to any other browser/device where you sign into the same account.
+### Development test accounts
+When running in non-production (`NODE_ENV !== "production"` / Vite dev), the backend seeds three test accounts with password `demo1234` and offers one-click autofill + explicit **Offline Patient/Doctor Demo** buttons on the Sign In page (permanently disabled in `NODE_ENV=production` and production builds):
+- Patient: `alex@medisense.demo`
+- Caregiver: `priya.caregiver@medisense.demo`
+- Doctor: `dr.chen@medisense.demo`
 
-See `server/README.md` for the full API reference and security notes.
+For production deployment and environment setup instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
 
-## Tests
+## Tests & build verification
 
 ```bash
-npm test
-```
+# Frontend Vitest suite (45 unit tests across data, interactions, search, & calculations)
+npm test -- --run
 
-Runs the Vitest suite (31 tests) covering the central data layer: adherence
-math, interaction lookups, trend classification, and global search — the
-pure logic the rest of the app is built on.
+# Production bundle build
+npm run build
+
+# Backend API & SQLite integration suite
+cd server && npm test
+```
 
 ## Project structure
 
 ```
-├── index.html, manifest.webmanifest, sw.js (in public/)
-├── vite.config.js          # includes the Vitest config
-├── package.json
+├── public/sw.js, manifest.webmanifest
+├── vite.config.js               # Vite + Vitest configuration
 ├── src/
-│   ├── main.jsx             # mounts the app, registers the service worker
-│   ├── index.css            # design tokens — theme, text size, high contrast
-│   ├── shared.jsx           # design system: tokens, theme, toasts, UI primitives
-│   ├── MediSenseApp.jsx     # root: session/auth + app shell + routing (code-split)
-│   ├── storagePolyfill.js   # window.storage — localStorage + optional backend mirror
-│   ├── apiStorage.js        # backend API client (auth + per-user data store)
+│   ├── main.jsx                 # BrowserRouter mount & service worker setup
+│   ├── index.css                # Light/dark/high-contrast CSS design tokens
+│   ├── shared.jsx               # Design system, BMI/refill utils, UUID generation
+│   ├── MediSenseApp.jsx         # URL routes, JWT session verification, reminder loop
+│   ├── apiStorage.js            # Authenticated REST + SSE client for server APIs
+│   ├── storagePolyfill.js       # Offline cache + backend state sync bridge
+│   ├── lib/
+│   │   ├── localDocStore.js     # IndexedDB binary fallback for offline documents
+│   │   └── pushNotifications.js # Web Push VAPID + foreground reminder scheduler
+│   ├── components/
+│   │   ├── ErrorBoundary.jsx
+│   │   └── nav.jsx              # Role-aware Sidebar, 5-item Mobile Bar, More sheet
 │   ├── data/
-│   │   ├── seed.js          # patient data model + demo dataset + adherence/interaction helpers
-│   │   ├── healthRecords.js # central health-data query layer (trends, stats, insights, timeline)
-│   │   ├── search.js        # global search index (patient + doctor modes)
-│   │   └── __tests__/       # Vitest suite
-│   ├── components/nav.jsx   # sidebar, mobile tab bar, "More" sheet
-│   └── features/            # one file per module: Today, Health, Medications,
-│                             # Records, Care, Insights, Profile, Doctor, Auth,
-│                             # Search, Messaging
-└── server/                  # Express API (optional)
+│   │   ├── interactions.js      # Curated FDA drug interaction & allergy-class DB
+│   │   ├── healthRecords.js     # Vital trends, anomalies, stats & timeline layer
+│   │   ├── search.js            # Global Ctrl/Cmd+K search index
+│   │   └── seed.js              # Initial domain model & sample dataset helpers
+│   └── features/                # Auth, Today, Health, Medications (+ Calendar),
+│                                # Records, Care, Caregiver, Insights, Profile, Doctor
+└── server/                      # Express + SQLite + Gemini AI + Web Push backend
 ```
 
-## What's implemented
+## Core capabilities
 
-**Information architecture** — Today · Health · Medications · Records ·
-Care · Insights, plus Profile / Settings / Privacy, mirrored in a desktop
-sidebar and a mobile bottom bar + "More" sheet.
-
-**Today** — a modular, drag-and-drop customizable dashboard (health
-snapshot, medications, activity, sleep, trends, alerts, next appointment).
-
-**Health** — Vitals (7D–1Y history with real charts), Activity & workouts,
-Sleep & stages, Body measurements, Nutrition & Hydration, Mobility, Mental
-Wellbeing, a unified Timeline, and a Trends page — all reading from one
-central health-data model, so a single recorded value shows up everywhere
-relevant (Today, Health, Trends, Insights, Reports, Doctor view, Timeline).
-
-**Medications** — schedule, history, adherence (with day-of-week and
-time-of-day pattern detection), an interaction checker, and rule-based
-adherence insights.
-
-**Records** — Conditions, Allergies, Lab Results, Immunizations,
-Procedures, Documents.
-
-**Care** — Doctors, Appointments (request/cancel against real availability),
-secure Messages (shared thread with the doctor), Care Team, and granular
-per-category data-sharing permissions.
-
-**Insights** — an AI chat assistant (needs its own proxy — see below),
-auto-generated non-diagnostic observations, notifications, and Reports
-(select sections + date range, then **Print / Save as PDF** via the
-browser's print dialog, or download a plain-text summary).
-
-**Doctor experience** — patient roster with adherence/unread-message
-flags, prescribing, availability management, and a sharing-aware patient
-view: vitals, trends, and insights only appear for categories the patient
-has actually authorized.
-
-**Accessibility** — Large Text (2 levels) and High Contrast settings,
-color-independent status indicators (icon + text + color, never color
-alone), a skip-to-content link, semantic landmarks, and full support for
-`prefers-reduced-motion`.
-
-**Platform basics** — installable web app (manifest + icon), a lightweight
-service worker for offline reloads of a previously visited session,
-per-feature code splitting (each tab is its own lazy-loaded chunk), and a
-data-source/ingestion architecture (manual entry + simulated device
-connections, clearly labeled as simulated — never faked as a real device).
-
-## Optional: MediSense AI chat proxy
-
-The in-app AI assistant (Insights → Ask AI) calls
-`http://localhost:3001/api/ai-chat`. That proxy isn't part of this project;
-if you don't run one, the chat screen still works but shows a friendly
-"couldn't reach the assistant service" message instead of a reply — nothing
-else in the app depends on it.
-
-## Known, intentional gaps
-
-- **No real device/wearable SDK integration.** Data Sources shows the
-  ingestion architecture and lets you simulate a reading through the real
-  pipeline, but never pretends to connect to an actual device — that needs
-  a real hardware/vendor partnership.
-- **No video/audio telehealth.** Appointments are slot-booking + secure
-  text messaging only; real-time video needs dedicated infrastructure
-  (WebRTC/TURN servers, a signaling service) this project doesn't include.
-- **The AI proxy is external**, as noted above.
+- **Authentication & Security**: bcrypt password hashing, JWT tokens with `jti` revocation on logout, role separation (`patient | caregiver | doctor`), `helmet` security headers, explicit CORS allowlist, `express-rate-limit` on auth & AI routes, `express-validator`, password reset + email verification tokens, and immutable `audit_logs`.
+- **SQLite Persistence**: `node:sqlite` (`DatabaseSync` with WAL mode & foreign keys) across normalized relational tables (`users`, `patient_profiles`, `doctor_profiles`, `caregiver_relationships`, `medications`, `medication_logs`, `health_measurements`, `medical_records`, `appointments`, `notifications`, `consent_records`, `audit_logs`, `documents`, `push_subscriptions`), plus online backup (`npm run backup` in `server/`).
+- **Medications**: Patient add/edit/delete, custom daily schedules, **Taken / Skipped / Late / Missed** dose logging, 90-day adherence heatmap, monthly Calendar view, medicine stock countdown & low-stock refill alerts, curated FDA drug-interaction & allergy checker (with optional server-side OpenFDA label lookup), and foreground/Web Push reminders.
+- **Health Monitoring**: Vitals with 7D–1Y charts & normal reference range shading, editable/deletable history entries, BMI calculation & category classification, calorie balance, 7-day hydration tracking, sleep & activity goals via progress rings.
+- **Medical Records**: Conditions, Allergies, Lab Results (with AI plain-language explainer), Immunizations, Procedures, Hospitalizations, and real multipart PDF/PNG/JPEG/WebP document upload (`multer` + magic-bytes check) with live modal preview and download.
+- **AI Health Assistant**: Built into the Express backend at `/api/ai-chat` (SSE streaming) and `/api/ai-summarize-report` powered by `@google/generative-ai` (`GEMINI_API_KEY`) under strict non-diagnostic safety guidelines.
+- **DPDP Privacy & Controls**: Granular consent recording & withdrawal, audit history viewer, full JSON data export (`/api/data/export`), and password-confirmed permanent account erasure (`DELETE /api/auth/account`).
+- **Caregiver Sharing**: Invite caregivers by email with server-filtered category permissions (`medications`, `vitals`, `glucose`, `activity`, `sleep`, `nutrition`, `records`). Unauthorized fields are stripped server-side before crossing the network.

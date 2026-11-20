@@ -1,12 +1,22 @@
-import React, { useState, useMemo } from "react";
-import { Users, AlertTriangle, ChevronRight, ChevronLeft, Plus, Pencil, Trash2, CalendarDays, ShieldCheck, Lock, Sparkles, TrendingUp } from "lucide-react";
-import { COLORS, Card, MotionCard, Heading, EmptyState, StatTile, Field, ConfirmButton, ThemeToggle, SegmentedControl, useTheme, TrendPill,
+import React, { useState, useMemo, useEffect } from "react";
+import { Users, AlertTriangle, ChevronRight, ChevronLeft, Plus, Pencil, Trash2, CalendarDays, ShieldCheck, Lock, Sparkles, TrendingUp, FileText, CheckCircle2 } from "lucide-react";
+import { COLORS, Card, MotionCard, Heading, EmptyState, StatTile, Field, Select, ConfirmButton, ThemeToggle, SegmentedControl, useTheme, TrendPill,
   fmtDate, to12h, todayISO, toast, uid,
 } from "../shared.jsx";
 import { computeAdherence, missedDaysCount } from "../data/seed.js";
+import { checkInteraction, checkAllergyAlerts } from "../data/interactions.js";
 import { VITAL_METRICS, metricSeries, seriesStats, healthTrendSummaries, generateInsights, CATEGORIES } from "../data/healthRecords.js";
 import { MessageThread, unreadCount } from "./Messaging.jsx";
 import { AccountSyncCard } from "./Profile.jsx";
+import {
+  fetchDoctorPatients,
+  fetchDoctorPatientDetail,
+  doctorPrescribeMedication,
+  fetchDoctorAppointments,
+  fetchDoctorProfile,
+  updateDoctorProfile,
+  isConnected,
+} from "../apiStorage.js";
 
 /* =========================================================================
    Doctor side — Patients · Availability · Profile
@@ -16,9 +26,50 @@ import { AccountSyncCard } from "./Profile.jsx";
 export function DoctorPatientsList({ data, onSelect }) {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("attention");
+  const [serverPatients, setServerPatients] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isConnected()) {
+      setLoading(true);
+      fetchDoctorPatients()
+        .then((res) => {
+          if (res?.patients?.length) {
+            const mapped = res.patients.map((sp) => ({
+              id: sp.patientUserId || sp.relationshipId,
+              patientUserId: sp.patientUserId,
+              name: sp.patientName || "Patient",
+              age: sp.data?.age || "—",
+              conditions: sp.conditions || sp.data?.conditions || "Under clinical care",
+              medications: sp.data?.medications || [],
+              logs: sp.data?.logs || [],
+              healthRecords: sp.data?.healthRecords || [],
+              messages: sp.data?.messages || [],
+              notifications: sp.data?.notifications || [],
+              nextVisit: sp.data?.nextVisit || null,
+              appointmentHistory: sp.data?.appointmentHistory || [],
+              records: sp.data?.records || {},
+              allergies: sp.data?.allergies || "",
+              healthShares: [
+                {
+                  doctorId: "self",
+                  categories: sp.permissions,
+                  ongoing: true,
+                },
+              ],
+            }));
+            setServerPatients(mapped);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, []);
+
+  const patientList = serverPatients || data.patients;
 
   const visible = useMemo(() => {
-    let list = data.patients.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.conditions.toLowerCase().includes(search.toLowerCase()));
+    let list = patientList.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || (p.conditions || "").toLowerCase().includes(search.toLowerCase()));
     if (sortBy === "attention") list = [...list].sort((a, b) => computeAdherence(a.logs, 7) - computeAdherence(b.logs, 7));
     else if (sortBy === "name") list = [...list].sort((a, b) => a.name.localeCompare(b.name));
     else if (sortBy === "visit") list = [...list].sort((a, b) => {
@@ -28,12 +79,14 @@ export function DoctorPatientsList({ data, onSelect }) {
       return (a.nextVisit.date + a.nextVisit.time).localeCompare(b.nextVisit.date + b.nextVisit.time);
     });
     return list;
-  }, [data.patients, search, sortBy]);
+  }, [patientList, search, sortBy]);
 
   return (
     <div>
       <Heading size={26} className="mb-1">Patients</Heading>
-      <p className="text-[14px] mb-5" style={{ color: COLORS.inkSoft }}>{data.patients.length} patients under your care.</p>
+      <p className="text-[14px] mb-5" style={{ color: COLORS.inkSoft }}>
+        {patientList.length} patients under your care. {loading && <span className="text-[12px] text-primary">Refreshing from clinic server…</span>}
+      </p>
 
       <div className="flex flex-wrap gap-3 mb-5">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or condition…"
@@ -90,7 +143,7 @@ function emptyMed() {
   return { name: "", genericName: "", dosage: "", unit: "mg", frequency: "Once daily", timesPerDay: 1, times: ["08:00"], startDate: todayISO(), endDate: "", instructions: "", withFood: true, notes: "", active: true };
 }
 
-function DoctorMedForm({ med, onCancel, onSave }) {
+function DoctorMedForm({ med, patient, onCancel, onSave }) {
   const [f, setF] = useState(med);
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const setTimesPerDay = (n) => {
@@ -99,6 +152,24 @@ function DoctorMedForm({ med, onCancel, onSave }) {
     setF((x) => ({ ...x, timesPerDay: n, times }));
   };
   const setTime = (i, v) => setF((x) => { const times = [...x.times]; times[i] = v; return { ...x, times }; });
+
+  const safetyAlerts = useMemo(() => {
+    const alerts = [];
+    if (!f.name?.trim()) return alerts;
+    const candidateName = f.name.trim();
+    const candidateGeneric = f.genericName?.trim();
+    const existingMeds = (patient?.medications || []).filter((m) => m.active && m.id !== f.id);
+    for (const m of existingMeds) {
+      const ix = checkInteraction(candidateName, m.name) || (candidateGeneric ? checkInteraction(candidateGeneric, m.genericName || m.name) : null);
+      if (ix) alerts.push({ type: "interaction", severity: ix.level, message: `${ix.level} interaction with ${m.name}: ${ix.explanation}` });
+    }
+    const candidateNames = [candidateName, ...(candidateGeneric ? [candidateGeneric] : [])];
+    const allergyHits = checkAllergyAlerts(candidateNames, patient?.records?.allergies || [], patient?.allergies || "");
+    for (const a of allergyHits) {
+      alerts.push({ type: "allergy", severity: a.severity || "Recorded", message: a.reason });
+    }
+    return alerts;
+  }, [f.name, f.genericName, f.id, patient]);
 
   return (
     <Card className="p-5 mb-6">
@@ -136,6 +207,14 @@ function DoctorMedForm({ med, onCancel, onSave }) {
           <input type="checkbox" checked={f.withFood} onChange={(e) => setF((x) => ({ ...x, withFood: e.target.checked }))} /> Take with food
         </label>
       </div>
+      {safetyAlerts.length > 0 && (
+        <div className="mt-4 p-3.5 rounded-[14px] space-y-1.5" style={{ background: COLORS.dangerSoft, color: COLORS.coral }}>
+          <div className="font-semibold text-[13px] flex items-center gap-1.5"><AlertTriangle size={14} /> Prescribing safety alert</div>
+          {safetyAlerts.map((a, idx) => (
+            <div key={idx} className="text-[12.5px]">{a.message}</div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-2 mt-5">
         <button onClick={() => onSave(f)} disabled={!f.name || !f.dosage}
           className="text-[13.5px] font-medium px-4 py-2.5 rounded-full text-white disabled:opacity-40" style={{ background: COLORS.primary }}>Save prescription</button>
@@ -240,16 +319,70 @@ function AuthorizedInsightsPanel({ patient, doctorId }) {
   );
 }
 
+function AuthorizedRecordsPanel({ patient, doctorId }) {
+  const share = (patient.healthShares || []).find((s) => s.doctorId === doctorId);
+  if (!share?.categories?.records) return null;
+  const conditions = patient.records?.conditions || [];
+  const allergies = patient.records?.allergies || [];
+  const labs = patient.records?.labResults || [];
+  return (
+    <Card className="p-5 mb-6">
+      <div className="flex items-center gap-2 mb-3"><FileText size={15} color={COLORS.primary} /><span className="font-semibold text-[14.5px]">Medical Records & Labs (authorized)</span></div>
+      <div className="grid sm:grid-cols-2 gap-4 text-[13px]">
+        <div>
+          <div className="font-semibold mb-1" style={{ color: COLORS.inkSoft }}>Conditions</div>
+          {conditions.length === 0 ? <span style={{ color: COLORS.inkFaint }}>None recorded</span> : conditions.map((c) => <div key={c.id}>{c.name} ({c.status})</div>)}
+        </div>
+        <div>
+          <div className="font-semibold mb-1" style={{ color: COLORS.inkSoft }}>Allergies</div>
+          {allergies.length === 0 ? <span style={{ color: COLORS.inkFaint }}>None recorded</span> : allergies.map((a) => <div key={a.id}>{a.allergen} · {a.severity}</div>)}
+        </div>
+      </div>
+      {labs.length > 0 && (
+        <div className="mt-3 pt-3 border-t text-[13px]" style={{ borderColor: COLORS.hair }}>
+          <div className="font-semibold mb-1.5" style={{ color: COLORS.inkSoft }}>Recent Lab Results</div>
+          <div className="space-y-1">
+            {labs.slice(0, 5).map((l) => (
+              <div key={l.id} className="flex justify-between"><span>{l.test}</span><span className="font-medium">{l.result} {l.unit} ({l.date})</span></div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function DoctorPatientDetail({ data, setData, patient, onBack }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [visitDate, setVisitDate] = useState(patient.nextVisit?.date || "");
-  const [visitTime, setVisitTime] = useState(patient.nextVisit?.time || "");
+  const [visitDate, setVisitDate] = useState(patient?.nextVisit?.date || "");
+  const [visitTime, setVisitTime] = useState(patient?.nextVisit?.time || "");
+  const [visitType, setVisitType] = useState(patient?.nextVisit?.type || "Follow-up");
+  const [consultNote, setConsultNote] = useState("");
+
+  if (!patient) {
+    return (
+      <div>
+        <button onClick={onBack} className="inline-flex items-center gap-1.5 text-[13px] font-medium mb-4" style={{ color: COLORS.inkSoft }}>
+          <ChevronLeft size={15} /> Back to patients
+        </button>
+        <Card className="p-6"><EmptyState icon={Users} title="Patient not found" body="Select a patient from your roster to view their details." /></Card>
+      </div>
+    );
+  }
 
   const updatePatient = async (pid, updater) => { const patients = data.patients.map((p) => (p.id === pid ? updater(p) : p)); await setData({ ...data, patients }); };
 
   const saveMed = async (med) => {
     const isNew = !med.id;
+    if (isConnected() && (patient.patientUserId || patient.id)) {
+      try {
+        await doctorPrescribeMedication(patient.patientUserId || patient.id, med);
+        toast(`Prescription saved to clinic server for ${patient.name}`);
+      } catch (err) {
+        toast(err.message || "Could not save prescription to clinic server", "warning");
+      }
+    }
     await updatePatient(patient.id, (p) => {
       let medications;
       if (med.id) medications = p.medications.map((m) => (m.id === med.id ? med : m));
@@ -257,11 +390,39 @@ export function DoctorPatientDetail({ data, setData, patient, onBack }) {
       return { ...p, medications };
     });
     setShowForm(false); setEditing(null);
-    toast(isNew ? `${med.name} prescribed for ${patient.name}` : `${med.name} updated`);
+    if (!isConnected()) {
+      toast(isNew ? `${med.name} prescribed for ${patient.name}` : `${med.name} updated`);
+    }
   };
   const removeMed = async (med) => { await updatePatient(patient.id, (p) => ({ ...p, medications: p.medications.filter((m) => m.id !== med.id) })); toast(`${med.name} removed from prescriptions`, "warning"); };
   const toggleActive = async (med) => { await updatePatient(patient.id, (p) => ({ ...p, medications: p.medications.map((m) => (m.id === med.id ? { ...m, active: !m.active } : m)) })); toast(med.active ? `${med.name} paused` : `${med.name} resumed`); };
-  const saveVisit = async () => { await updatePatient(patient.id, (p) => ({ ...p, nextVisit: visitDate && visitTime ? { date: visitDate, time: visitTime, doctorId: data.doctor.id, type: "Follow-up" } : null })); toast(visitDate && visitTime ? `Next visit set for ${fmtDate(visitDate)}` : "Visit date cleared"); };
+  const saveVisit = async () => {
+    await updatePatient(patient.id, (p) => ({
+      ...p,
+      nextVisit: visitDate && visitTime ? { date: visitDate, time: visitTime, doctorId: data.doctor.id, type: visitType } : null,
+    }));
+    toast(visitDate && visitTime ? `Next visit set for ${fmtDate(visitDate)}` : "Visit date cleared");
+  };
+  const completeVisit = async () => {
+    const entry = {
+      id: uid(),
+      date: visitDate || todayISO(),
+      time: visitTime || "10:00",
+      doctorName: data.doctor.name,
+      type: visitType || "Follow-up",
+      status: "Completed",
+      notes: consultNote.trim() || "Visit completed.",
+    };
+    await updatePatient(patient.id, (p) => ({
+      ...p,
+      appointmentHistory: [entry, ...(p.appointmentHistory || [])],
+      nextVisit: null,
+    }));
+    setConsultNote("");
+    setVisitDate("");
+    setVisitTime("");
+    toast("Consultation note saved to visit history");
+  };
 
   return (
     <div>
@@ -282,21 +443,40 @@ export function DoctorPatientDetail({ data, setData, patient, onBack }) {
       <AuthorizedVitalsPanel patient={patient} doctorId={data.doctor.id} />
       <AuthorizedTrendsPanel patient={patient} doctorId={data.doctor.id} />
       <AuthorizedInsightsPanel patient={patient} doctorId={data.doctor.id} />
+      <AuthorizedRecordsPanel patient={patient} doctorId={data.doctor.id} />
 
       <div className="mb-6">
         <MessageThread patient={patient} updatePatient={updatePatient} viewerSender="doctor" otherName={patient.name} otherSubtitle={`Age ${patient.age} · ${patient.conditions}`} />
       </div>
 
       <Card className="p-5 mb-6">
-        <div className="font-semibold text-[15px] mb-3">Next visit</div>
-        <p className="text-[13px] mb-3" style={{ color: COLORS.inkSoft }}>Set or change the date the patient needs to come in.</p>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="font-semibold text-[15px] mb-3">Visits & Consultation Notes</div>
+        <p className="text-[13px] mb-3" style={{ color: COLORS.inkSoft }}>Schedule an upcoming appointment or log consultation notes from a completed visit.</p>
+        <div className="flex flex-wrap items-end gap-3 mb-4">
           <Field label="Visit date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} type="date" />
           <Field label="Visit time" value={visitTime} onChange={(e) => setVisitTime(e.target.value)} type="time" />
+          <Select label="Type" value={visitType} onChange={(e) => setVisitType(e.target.value)} options={["Initial Consult", "Follow-up", "Lab Review", "Urgent", "Tele-consult"]} />
           <button onClick={saveVisit} disabled={!visitDate || !visitTime}
             className="text-[13.5px] font-medium px-4 py-2.5 rounded-full text-white disabled:opacity-40" style={{ background: COLORS.primary }}>Save visit date</button>
           {patient.nextVisit && <ConfirmButton variant="text" label="Clear" confirmLabel="Yes, clear" onConfirm={() => { setVisitDate(""); setVisitTime(""); updatePatient(patient.id, (p) => ({ ...p, nextVisit: null })); toast("Visit date cleared", "warning"); }} />}
         </div>
+        <div className="pt-4 border-t space-y-3" style={{ borderColor: COLORS.hair }}>
+          <Field label="Consultation note" value={consultNote} onChange={(e) => setConsultNote(e.target.value)} placeholder="Clinical observations, medication changes, follow-up plan…" />
+          <button onClick={completeVisit} className="inline-flex items-center gap-1.5 text-[13px] font-medium px-4 py-2 rounded-full border" style={{ borderColor: COLORS.hair, color: COLORS.primaryDark }}>
+            <CheckCircle2 size={14} /> Log Completed Visit & Note
+          </button>
+        </div>
+        {(patient.appointmentHistory || []).length > 0 && (
+          <div className="mt-4 pt-3 border-t space-y-2" style={{ borderColor: COLORS.hair }}>
+            <div className="text-[12.5px] font-semibold" style={{ color: COLORS.inkSoft }}>Past Consultations</div>
+            {patient.appointmentHistory.slice(0, 4).map((h) => (
+              <div key={h.id} className="text-[13px] py-1.5 flex items-start justify-between gap-2">
+                <div><strong>{h.date}</strong> · {h.type}: {h.notes}</div>
+                <TrendPill direction="stable" label={h.status || "Completed"} />
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       <div className="flex items-center justify-between mb-3">
@@ -307,7 +487,7 @@ export function DoctorPatientDetail({ data, setData, patient, onBack }) {
         </button>
       </div>
 
-      {showForm && <DoctorMedForm med={editing} onCancel={() => { setShowForm(false); setEditing(null); }} onSave={saveMed} />}
+      {showForm && <DoctorMedForm med={editing} patient={patient} onCancel={() => { setShowForm(false); setEditing(null); }} onSave={saveMed} />}
 
       {patient.medications.length === 0 ? (
         <Card className="p-5"><EmptyState icon={Users} title="No medications prescribed" body="Use “Prescribe new medicine” to add one." /></Card>
@@ -401,7 +581,30 @@ export function DoctorProfile({ data, setData }) {
   const [form, setForm] = useState(data.doctor);
   const { textSize, setTextSize, contrast, setContrast } = useTheme();
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const save = async () => { await setData({ ...data, doctor: form }); toast("Profile updated"); };
+
+  useEffect(() => {
+    if (isConnected()) {
+      fetchDoctorProfile()
+        .then((res) => {
+          if (res?.profile) {
+            setForm((prev) => ({ ...prev, ...res.profile }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const save = async () => {
+    if (isConnected()) {
+      try {
+        await updateDoctorProfile(form);
+      } catch (err) {
+        toast(err.message || "Could not save to clinic server", "warning");
+      }
+    }
+    await setData({ ...data, doctor: form });
+    toast("Profile updated");
+  };
 
   return (
     <div>

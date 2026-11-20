@@ -1,0 +1,27 @@
+# Dependencies & build outputs
+node_modules/
+dist/
+build/
+.vercel
+
+# Environment & secret files (never commit real credentials)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Local SQLite database, runtime uploads, backups & generated keys
+medisense-app/server/data/*.json
+medisense-app/server/data/*.sqlite*
+medisense-app/server/data/vapid.json
+medisense-app/server/uploads/*
+!medisense-app/server/uploads/.gitkeep
+medisense-app/server/backups/*
+!medisense-app/server/data/.gitkeep
+
+# OS & editor artifacts
+.DS_Store
+Thumbs.db
+*.log

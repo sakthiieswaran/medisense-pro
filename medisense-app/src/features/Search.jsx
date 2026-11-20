@@ -36,8 +36,8 @@ export default function SearchOverlay({ open, onClose, data, patient, role = "pa
           <motion.div className="fixed inset-0 bg-black/40 z-[60]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE} onClick={onClose} />
           <motion.div role="dialog" aria-modal="true" aria-label="Search MediSense"
             initial={{ opacity: 0, y: -12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -12, scale: 0.98 }} transition={SPRING_UI}
-            className="fixed z-[61] left-1/2 top-[8vh] -translate-x-1/2 w-[92vw] max-w-lg rounded-[24px] overflow-hidden"
-            style={{ background: COLORS.card, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+            className="fixed z-[61] left-1/2 top-[8vh] -translate-x-1/2 w-[92vw] max-w-lg rounded-[20px] overflow-hidden border"
+            style={{ background: COLORS.card, borderColor: COLORS.hair, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}>
             <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: COLORS.hair }}>
               <Search size={18} color={COLORS.inkSoft} />
               <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)}

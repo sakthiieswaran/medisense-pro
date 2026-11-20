@@ -1,5 +1,10 @@
 node_modules/
 dist/
+.vercel
 .env
 .env.*
 !.env.example
+*.local
+*.pem
+*.key
+*.log

@@ -1,0 +1,12 @@
+{
+  "name": "medisense",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MediSense — personal healthcare management platform",
+  "scripts": {
+    "build": "npm --prefix medisense-app run build",
+    "dev": "npm --prefix medisense-app run dev",
+    "test": "npm --prefix medisense-app test",
+    "server": "npm --prefix medisense-app/server start"
+  }
+}

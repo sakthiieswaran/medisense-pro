@@ -157,21 +157,28 @@ export function buildSeedData() {
     id: "doc1", name: "Dr. Sarah Chen", specialty: "Internal Medicine & Endocrinology",
     email: "dr.chen@medisense.demo", phone: "+1 555-0177",
   };
+  const doctors = [
+    doctor,
+    { id: "doc2", name: "Dr. Vikram Rao", specialty: "Cardiology", email: "dr.rao@medisense.demo", phone: "+1 555-0188" },
+  ];
 
   // ---- Patient 1: Alex Johnson (the demo patient login) ----
   const p1Meds = [
     { id: "m1", name: "Metformin", genericName: "Metformin HCl", dosage: "500", unit: "mg",
       frequency: "Twice daily", timesPerDay: 2, times: ["08:00", "20:00"],
       startDate: addDays(todayISO(), -60), endDate: "", withFood: true,
-      instructions: "Take after meals to reduce stomach upset.", notes: "For blood sugar management.", active: true },
+      instructions: "Take after meals to reduce stomach upset.", notes: "For blood sugar management.", active: true,
+      source: "doctor", currentStock: 10, refillThreshold: 7 },
     { id: "m2", name: "Aspirin", genericName: "Acetylsalicylic acid", dosage: "75", unit: "mg",
       frequency: "Once daily", timesPerDay: 1, times: ["08:00"],
       startDate: addDays(todayISO(), -60), endDate: "", withFood: true,
-      instructions: "Low-dose, take with breakfast.", notes: "For cardiovascular protection.", active: true },
+      instructions: "Low-dose, take with breakfast.", notes: "For cardiovascular protection.", active: true,
+      source: "doctor", currentStock: 24, refillThreshold: 7 },
     { id: "m3", name: "Vitamin D3", genericName: "Cholecalciferol", dosage: "1000", unit: "IU",
       frequency: "Once daily", timesPerDay: 1, times: ["13:00"],
       startDate: addDays(todayISO(), -60), endDate: "", withFood: false,
-      instructions: "Take with a glass of water.", notes: "", active: true },
+      instructions: "Take with a glass of water.", notes: "", active: true,
+      source: "patient", currentStock: 42, refillThreshold: 7 },
   ];
   let p1Logs = [];
   p1Meds.forEach((med) => {
@@ -275,8 +282,12 @@ export function buildSeedData() {
         procedures: [
           { id: uid(), name: "Retinal screening", date: addDays(todayISO(), -200), provider: "Dr. Sarah Chen", notes: "No diabetic retinopathy found." },
         ],
+        hospitalizations: [],
         documents: [],
       },
+      appointmentHistory: [
+        { id: uid(), date: addDays(todayISO(), -60), time: "10:00", doctorId: "doc1", doctorName: "Dr. Sarah Chen", type: "Routine Endocrine Review", location: "MediSense Clinic — Room 4", status: "completed", notes: "HbA1c improved to 6.8%. Continue current Metformin 500mg BID." },
+      ],
       careTeam: [
         { id: uid(), name: "Dr. Sarah Chen", role: "Primary care / Endocrinology", type: "doctor", doctorId: "doc1" },
       ],
@@ -366,7 +377,7 @@ export function buildSeedData() {
   availability[10].booked = true; availability[10].patientId = "p3";
   patients[2].nextVisit = { date: availability[10].date, time: availability[10].time, doctorId: "doc1", type: "Follow-up", location: "MediSense Clinic — Room 2" };
 
-  return { doctor, availability, patients, settings: { reminders: true, doctorAlerts: true, notificationPrefs: { medication: true, health: true, appointments: true, system: true } } };
+  return { doctor, doctors, availability, patients, settings: { reminders: true, doctorAlerts: true, notificationPrefs: { medication: true, health: true, appointments: true, system: true } } };
 }
 
 /* ------------------------------ derived data helpers ------------------------------ */
@@ -397,16 +408,4 @@ export function missedDaysCount(logs, days = 30) {
   return missedDates.size;
 }
 
-export const INTERACTION_DB = {
-  "warfarin|aspirin": { level: "High risk", explanation: "Both affect blood clotting. Combined use raises bleeding risk.", recommendation: "Consult your healthcare professional before combining these.", category: "Bleeding risk" },
-  "metformin|alcohol": { level: "Moderate caution", explanation: "Alcohol can increase the risk of low blood sugar and lactic acidosis with Metformin.", recommendation: "Discuss safe alcohol limits with your doctor.", category: "Metabolic" },
-  "aspirin|ibuprofen": { level: "Moderate caution", explanation: "Taking both may increase gastrointestinal irritation and reduce aspirin's cardio-protective effect.", recommendation: "Space doses apart and check with a pharmacist.", category: "Gastrointestinal" },
-  "atorvastatin|clopidogrel": { level: "Safe", explanation: "No major known interaction between these two at standard doses.", recommendation: "Continue as prescribed and report any unusual muscle pain.", category: "General" },
-  "metformin|vitamin d3": { level: "Safe", explanation: "No known significant interaction between these two.", recommendation: "No special precautions typically needed.", category: "General" },
-};
-
-export function checkInteraction(a, b) {
-  const key1 = `${a.toLowerCase()}|${b.toLowerCase()}`;
-  const key2 = `${b.toLowerCase()}|${a.toLowerCase()}`;
-  return INTERACTION_DB[key1] || INTERACTION_DB[key2] || null;
-}
+export { INTERACTION_DB, checkInteraction, checkAllergyAlerts, normalizeDrugName } from "./interactions.js";

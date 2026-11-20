@@ -28,16 +28,20 @@ function readAll() {
 }
 
 window.storage = {
+  lastSyncError: null,
+
   async get(key) {
     if (getToken()) {
       try {
         const remote = await remoteGet(key);
+        window.storage.lastSyncError = null;
         // Keep localStorage warm with whatever the backend has, so the
         // very next offline load (backend down, airplane mode, etc.) is
         // still correct.
         localStorage.setItem(PREFIX + key, remote.value);
         return remote;
-      } catch {
+      } catch (err) {
+        window.storage.lastSyncError = err;
         // Not on the backend yet, or backend unreachable — fall through.
       }
     }
@@ -49,8 +53,23 @@ window.storage = {
   async set(key, value) {
     localStorage.setItem(PREFIX + key, value);
     if (getToken()) {
-      // Best-effort mirror — never blocks or fails the local save.
-      remoteSet(key, value).catch(() => {});
+      remoteSet(key, value)
+        .then(() => {
+          window.storage.lastSyncError = null;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("medisense:sync-status", { detail: { ok: true, key } }));
+          }
+        })
+        .catch((err) => {
+          window.storage.lastSyncError = err;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("medisense:sync-status", {
+                detail: { ok: false, key, error: err.message },
+              })
+            );
+          }
+        });
     }
     return { key, value, shared: false };
   },

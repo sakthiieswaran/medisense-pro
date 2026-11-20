@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send } from "lucide-react";
+import { Send, MessageCircle } from "lucide-react";
 import { COLORS, Card, EmptyState, uid, todayISO, to12h } from "../shared.jsx";
-import { MessageCircle } from "lucide-react";
+import { fetchMessages, sendChatMessage, isConnected } from "../apiStorage.js";
 
 /* =========================================================================
    Secure messaging — a single thread per patient, shared between the
@@ -26,6 +26,27 @@ export function MessageThread({ patient, updatePatient, viewerSender, otherName,
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length]);
 
+  // Synchronize with server messages if connected
+  useEffect(() => {
+    const targetId = patient.patientUserId || patient.id;
+    if (isConnected() && targetId) {
+      fetchMessages(targetId)
+        .then((res) => {
+          if (res?.messages?.length) {
+            updatePatient(patient.id, (p) => {
+              const existingIds = new Set((p.messages || []).map((m) => m.id));
+              const merged = [...(p.messages || [])];
+              for (const sm of res.messages) {
+                if (!existingIds.has(sm.id)) merged.push(sm);
+              }
+              return { ...p, messages: merged };
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [patient.id]);
+
   // Mark the other party's messages read as soon as this thread is open.
   useEffect(() => {
     const hasUnread = messages.some((m) => m.sender !== viewerSender && !m.read);
@@ -37,8 +58,15 @@ export function MessageThread({ patient, updatePatient, viewerSender, otherName,
 
   const send = async () => {
     if (!text.trim()) return;
+    const trimmed = text.trim();
     const now = new Date();
-    const msg = { id: uid(), sender: viewerSender, text: text.trim(), date: todayISO(), time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`, read: false };
+    const msg = { id: uid(), sender: viewerSender, text: trimmed, date: todayISO(), time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`, read: false };
+    
+    const targetId = patient.patientUserId || patient.id;
+    if (isConnected() && targetId) {
+      sendChatMessage(targetId, trimmed).catch(() => {});
+    }
+
     await updatePatient(patient.id, (p) => ({ ...p, messages: [...(p.messages || []), msg] }));
     setText("");
   };

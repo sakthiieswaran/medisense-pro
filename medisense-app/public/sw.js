@@ -1,18 +1,6 @@
-// MediSense service worker — basic offline support.
-//
-// Strategy: network-first for navigations (so people always get the latest
-// app shell when online), falling back to the last cached shell when
-// offline. Static assets (the hashed JS/CSS chunks Vite produces) are
-// cached the first time they're fetched, then served cache-first, since
-// their filenames change whenever their contents do.
-//
-// This is intentionally simple — no precache manifest, no background sync,
-// no push notifications. It means "reopen the app you already used" works
-// without a network connection; it does not mean every screen or every
-// piece of data is guaranteed available offline (data sync with a signed-in
-// account still needs the network).
+// MediSense service worker — offline app-shell caching + Web Push notifications.
 
-const CACHE_NAME = "medisense-cache-v1";
+const CACHE_NAME = "medisense-cache-v2";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -33,8 +21,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return; // never cache third-party requests (fonts CDN, API calls, etc.)
-  if (url.pathname.startsWith("/api/")) return; // never cache backend API responses
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
@@ -57,6 +45,47 @@ self.addEventListener("fetch", (event) => {
           return res;
         })
         .catch(() => cached);
+    })
+  );
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {
+    title: "MediSense Reminder",
+    body: "You have an upcoming medication or health reminder.",
+    url: "/medications",
+  };
+  try {
+    if (event.data) {
+      payload = { ...payload, ...event.data.json() };
+    }
+  } catch {
+    if (event.data) payload.body = event.data.text();
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icon.svg",
+      badge: "/icon.svg",
+      data: { url: payload.url || "/medications" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || "/medications";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.focus();
+          if ("navigate" in client) client.navigate(targetUrl);
+          return;
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
     })
   );
 });

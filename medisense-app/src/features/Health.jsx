@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from "react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from "recharts";
 import {
   HeartPulse, Activity as ActivityIcon, Moon, Apple, Ruler, Wind, Footprints, Smile,
   ChevronLeft, Plus, Droplets, Gauge, Thermometer, Clock, History as HistoryIcon, TrendingUp,
+  Pencil, Trash2, ArrowUp, ArrowDown, Minus,
 } from "lucide-react";
 import {
   COLORS, Card, Heading, EmptyState, Field, Select, SegmentedControl, TrendPill, StatChip,
-  IconBadge, uid, todayISO, addDays, toast, round1,
+  IconBadge, RingProgress, uid, todayISO, addDays, toast, round1, computeBMI, bmiCategory,
 } from "../shared.jsx";
 import {
   VITAL_METRICS, metricSeries, seriesStats, metricStatus, computeTrend, CATEGORIES,
@@ -37,6 +38,28 @@ const CATEGORY_TABS = [
   { id: "timeline", label: "Timeline", icon: HistoryIcon },
 ];
 
+/* ---- Custom Tooltip ---- */
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div style={{
+      background: "var(--color-card)",
+      border: `1px solid var(--color-hair)`,
+      borderRadius: 12,
+      boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+      padding: "8px 12px",
+      fontSize: 12,
+    }}>
+      <div style={{ color: COLORS.inkSoft, marginBottom: 4 }}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ color: p.color || COLORS.ink, fontWeight: 600 }}>
+          {p.name ? `${p.name}: ` : ""}{p.value}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* -------------------------------- reusable metric detail -------------------------------- */
 
 export function MetricDetail({ patient, metricKey, updatePatient, onBack }) {
@@ -44,6 +67,9 @@ export function MetricDetail({ patient, metricKey, updatePatient, onBack }) {
   const [showAdd, setShowAdd] = useState(false);
   const [val, setVal] = useState("");
   const [val2, setVal2] = useState("");
+  const [editingDate, setEditingDate] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const [editVal2, setEditVal2] = useState("");
   const def = VITAL_METRICS[metricKey];
   const series = useMemo(() => metricSeries(patient, metricKey, range), [patient, metricKey, range]);
   const stats = seriesStats(series);
@@ -69,49 +95,113 @@ export function MetricDetail({ patient, metricKey, updatePatient, onBack }) {
     toast(`${def.label} reading added`);
   };
 
+  const saveEditReading = async (date) => {
+    if (!editVal || !updatePatient) return;
+    await updatePatient(patient.id, (p) => ({
+      ...p,
+      healthRecords: p.healthRecords.map((r) => {
+        if (r.date !== date) return r;
+        return metricKey === "bloodPressure"
+          ? { ...r, systolic: Number(editVal), diastolic: Number(editVal2 || r.diastolic || 0), source: "MediSense manual entry" }
+          : { ...r, [metricKey]: Number(editVal), source: "MediSense manual entry" };
+      }),
+    }));
+    setEditingDate(null);
+    toast("Reading updated");
+  };
+
+  const deleteReading = async (date) => {
+    if (!updatePatient) return;
+    await updatePatient(patient.id, (p) => ({
+      ...p,
+      healthRecords: p.healthRecords.map((r) => {
+        if (r.date !== date) return r;
+        const copy = { ...r };
+        if (metricKey === "bloodPressure") {
+          delete copy.systolic;
+          delete copy.diastolic;
+        } else {
+          delete copy[metricKey];
+        }
+        return copy;
+      }),
+    }));
+    toast("Reading deleted");
+  };
+
+  const chartHeight = typeof window !== "undefined" && window.innerWidth < 640 ? 200 : 280;
+
   return (
     <div>
-      <button onClick={onBack} className="flex items-center gap-1 text-[13.5px] font-medium mb-4" style={{ color: COLORS.primary }}>
-        <ChevronLeft size={16} /> Back to Health
-      </button>
-      <Heading size={24}>{def.label}</Heading>
-      <div className="flex items-end gap-3 mt-3 mb-1">
-        <div className="text-[36px] font-bold tabular-nums" style={{ letterSpacing: "-0.02em" }}>
-          {stats.latest != null ? stats.latest : "—"} <span className="text-[16px] font-medium" style={{ color: COLORS.inkSoft }}>{def.unit}</span>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-5">
+        <button
+          onClick={onBack}
+          className="flex items-center justify-center w-8 h-8 rounded-full"
+          style={{ background: COLORS.surface2, color: COLORS.inkSoft }}
+          aria-label="Back to Health"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <div>
+          <div className="text-[13px]" style={{ color: COLORS.inkSoft }}>{def.unit}</div>
+          <Heading size={22}>{def.label}</Heading>
         </div>
-        <TrendPill direction={status.tone} label={status.label} />
       </div>
 
-      <Card className="p-5 mt-4">
+      {/* Stats row: Latest | Min | Max | Avg */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        {[
+          { label: "Latest", value: stats.latest ?? "—" },
+          { label: "Minimum", value: stats.min ?? "—" },
+          { label: "Maximum", value: stats.max ?? "—" },
+          { label: "Average", value: stats.avg ?? "—" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-[14px] p-3 text-center" style={{ background: COLORS.surface2 }}>
+            <div className="text-[11.5px] font-medium mb-1" style={{ color: COLORS.inkSoft }}>{s.label}</div>
+            <div className="text-[18px] font-semibold tabular-nums">{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Chart card */}
+      <Card className="p-5 mt-2">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <SegmentedControl options={RANGE_OPTIONS} value={range} onChange={setRange} />
-          <TrendPill direction={trend.direction} label={trend.direction === "stable" ? "Stable" : `${trend.changePct > 0 ? "+" : ""}${trend.changePct}%`} />
+          <div className="flex items-center gap-2">
+            {Array.isArray(def.normal) && (
+              <span className="text-[11.5px] px-2.5 py-0.5 rounded-full" style={{ background: COLORS.successSoft, color: COLORS.success }}>
+                Target: {def.normal[0]}–{def.normal[1]} {def.unit}
+              </span>
+            )}
+            <TrendPill direction={trend.direction} label={trend.direction === "stable" ? "Stable" : `${trend.changePct > 0 ? "+" : ""}${trend.changePct}%`} />
+          </div>
         </div>
         {chartData.length === 0 ? (
           <EmptyState icon={HeartPulse} title="No readings yet" body="Add a reading to start tracking this metric." />
         ) : (
-          <div style={{ width: "100%", height: 220 }}>
+          <div style={{ width: "100%", height: chartHeight }}>
             <ResponsiveContainer>
               <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                <CartesianGrid stroke={COLORS.hair} vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
+                <CartesianGrid stroke={COLORS.hair} vertical={false} strokeDasharray="0" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--color-ink-soft)" }} axisLine={{ stroke: COLORS.hair, strokeWidth: 1 }} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} domain={["auto", "auto"]} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: `1px solid ${COLORS.hair}`, fontSize: 12 }} />
+                <Tooltip content={<CustomTooltip />} />
+                {Array.isArray(def.normal) && def.normal.length === 2 && (
+                  <ReferenceArea y1={def.normal[0]} y2={def.normal[1]} fill={COLORS.successSoft} fillOpacity={0.35} />
+                )}
                 <Line type="monotone" dataKey="value" stroke={COLORS.primary} strokeWidth={2.5} dot={false} />
                 {metricKey === "bloodPressure" && <Line type="monotone" dataKey="secondary" stroke={COLORS.lavender} strokeWidth={2} dot={false} />}
               </LineChart>
             </ResponsiveContainer>
           </div>
         )}
-        <div className="grid grid-cols-3 gap-3 mt-4">
-          <div className="text-center"><div className="text-[12px]" style={{ color: COLORS.inkSoft }}>Average</div><div className="text-[16px] font-semibold">{stats.avg ?? "—"}</div></div>
-          <div className="text-center"><div className="text-[12px]" style={{ color: COLORS.inkSoft }}>Minimum</div><div className="text-[16px] font-semibold">{stats.min ?? "—"}</div></div>
-          <div className="text-center"><div className="text-[12px]" style={{ color: COLORS.inkSoft }}>Maximum</div><div className="text-[16px] font-semibold">{stats.max ?? "—"}</div></div>
-        </div>
       </Card>
 
+      {/* Add reading */}
       {updatePatient && (
         <Card className="p-5 mt-4">
+          <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Add Reading</div>
           {!showAdd ? (
             <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 text-[13.5px] font-medium" style={{ color: COLORS.primary }}>
               <Plus size={15} /> Add a reading
@@ -120,23 +210,59 @@ export function MetricDetail({ patient, metricKey, updatePatient, onBack }) {
             <div className="flex items-end gap-3 flex-wrap">
               <div className="w-32"><Field label={metricKey === "bloodPressure" ? "Systolic" : def.label} value={val} onChange={(e) => setVal(e.target.value)} type="number" /></div>
               {metricKey === "bloodPressure" && <div className="w-32"><Field label="Diastolic" value={val2} onChange={(e) => setVal2(e.target.value)} type="number" /></div>}
-              <button onClick={addReading} className="text-[13.5px] font-medium px-4 py-2.5 rounded-full text-white" style={{ background: COLORS.primary }}>Save</button>
-              <button onClick={() => setShowAdd(false)} className="text-[13.5px] font-medium px-4 py-2.5 rounded-full border" style={{ borderColor: COLORS.hair, color: COLORS.inkSoft }}>Cancel</button>
+              <button onClick={addReading} className="text-[13.5px] font-medium px-4 py-2.5 rounded-[10px] text-white" style={{ background: COLORS.primary }}>Save</button>
+              <button onClick={() => setShowAdd(false)} className="text-[13.5px] font-medium px-4 py-2.5 rounded-[10px] border" style={{ borderColor: COLORS.hair, color: COLORS.inkSoft }}>Cancel</button>
             </div>
           )}
         </Card>
       )}
 
+      {/* History */}
       <Card className="p-5 mt-4">
         <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>History</div>
-        <div className="space-y-2 max-h-[320px] overflow-y-auto">
+        <div className="space-y-1 max-h-[320px] overflow-y-auto">
           {[...series].reverse().map((s, i) => (
-            <div key={i} className="flex items-center justify-between text-[13.5px] py-1.5 border-b last:border-0" style={{ borderColor: COLORS.hair }}>
-              <span style={{ color: COLORS.inkSoft }}>{s.date}</span>
-              <span className="font-medium">{s.value}{metricKey === "bloodPressure" ? `/${s.secondary}` : ""} {def.unit}</span>
-              <span className="text-[12px]" style={{ color: COLORS.inkFaint }}>{s.source || "MediSense manual entry"}</span>
+            <div key={s.date + i} className="py-2 border-b last:border-0" style={{ borderColor: COLORS.hair }}>
+              {editingDate === s.date ? (
+                <div className="flex items-end gap-2 flex-wrap">
+                  <span className="text-[12.5px] mr-1" style={{ color: COLORS.inkSoft }}>{s.date}</span>
+                  <div className="w-24"><Field label={metricKey === "bloodPressure" ? "Sys" : "Value"} type="number" value={editVal} onChange={(e) => setEditVal(e.target.value)} /></div>
+                  {metricKey === "bloodPressure" && <div className="w-24"><Field label="Dia" type="number" value={editVal2} onChange={(e) => setEditVal2(e.target.value)} /></div>}
+                  <button onClick={() => saveEditReading(s.date)} className="text-[12.5px] font-medium px-3 py-1.5 rounded-[8px] text-white" style={{ background: COLORS.primary }}>Save</button>
+                  <button onClick={() => setEditingDate(null)} className="text-[12.5px] px-2.5 py-1.5" style={{ color: COLORS.inkSoft }}>Cancel</button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2 text-[13.5px]">
+                  <span style={{ color: COLORS.inkSoft }}>{s.date}</span>
+                  <span className="font-semibold tabular-nums">{s.value}{metricKey === "bloodPressure" ? `/${s.secondary}` : ""} <span className="text-[12px] font-normal" style={{ color: COLORS.inkSoft }}>{def.unit}</span></span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[12px] hidden sm:inline" style={{ color: COLORS.inkFaint }}>{s.source || "manual"}</span>
+                    {updatePatient && (
+                      <>
+                        <button
+                          onClick={() => { setEditingDate(s.date); setEditVal(String(s.value)); setEditVal2(s.secondary != null ? String(s.secondary) : ""); }}
+                          aria-label={`Edit reading from ${s.date}`}
+                          className="p-1.5 rounded-full hover:bg-black/5"
+                          style={{ color: COLORS.inkSoft }}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => deleteReading(s.date)}
+                          aria-label={`Delete reading from ${s.date}`}
+                          className="p-1.5 rounded-full hover:bg-black/5"
+                          style={{ color: COLORS.danger }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
+          {series.length === 0 && <EmptyState icon={HeartPulse} title="No history" body="Add readings to see history here." />}
         </div>
       </Card>
     </div>
@@ -145,17 +271,40 @@ export function MetricDetail({ patient, metricKey, updatePatient, onBack }) {
 
 /* -------------------------------- vitals -------------------------------- */
 
+function TrendArrow({ direction }) {
+  if (direction === "up") return <ArrowUp size={12} style={{ color: COLORS.success }} />;
+  if (direction === "down") return <ArrowDown size={12} style={{ color: COLORS.danger }} />;
+  return <Minus size={12} style={{ color: COLORS.inkFaint }} />;
+}
+
 function VitalsGrid({ patient, goToMetric }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
       {Object.values(VITAL_METRICS).filter((d) => d.category === CATEGORIES.VITALS).map((def) => {
         const series = metricSeries(patient, def.key, 7);
         const stats = seriesStats(series);
+        const trend = computeTrend(series);
+        const status = metricStatus(def, stats.latest);
         return (
-          <button key={def.key} onClick={() => goToMetric(def.key)} className="text-left">
-            <Card className="p-4 h-full">
-              <div className="text-[12.5px] font-medium" style={{ color: COLORS.inkSoft }}>{def.label}</div>
-              <div className="text-[20px] font-semibold mt-1 tabular-nums">{stats.latest != null ? stats.latest : "—"} <span className="text-[12px] font-normal" style={{ color: COLORS.inkSoft }}>{def.unit}</span></div>
+          <button
+            key={def.key}
+            onClick={() => goToMetric(def.key)}
+            className="text-left group"
+          >
+            <Card className="p-4 h-full transition-shadow duration-150 group-hover:shadow-md" style={{ cursor: "pointer" }}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[12px] font-medium" style={{ color: COLORS.inkSoft }}>{def.label}</div>
+                <TrendArrow direction={trend.direction} />
+              </div>
+              <div className="text-[22px] font-bold mt-1 tabular-nums" style={{ letterSpacing: "-0.02em" }}>
+                {stats.latest != null ? stats.latest : "—"}
+                <span className="text-[12px] font-normal ml-1" style={{ color: COLORS.inkSoft }}>{def.unit}</span>
+              </div>
+              {status && (
+                <div className="mt-2">
+                  <TrendPill direction={status.tone} label={status.label} />
+                </div>
+              )}
             </Card>
           </button>
         );
@@ -171,12 +320,40 @@ const WORKOUT_TYPES = ["Walking", "Running", "Cycling", "Swimming", "Strength tr
 function ActivitySection({ patient, updatePatient }) {
   const [range, setRange] = useState(30);
   const [showForm, setShowForm] = useState(false);
+  const [showStepsForm, setShowStepsForm] = useState(false);
   const [form, setForm] = useState({ type: "Walking", durationMin: "", distanceKm: "", calories: "", avgHeartRate: "", notes: "" });
+  const [stepForm, setStepForm] = useState({ steps: "", distanceKm: "", activeEnergyKcal: "", exerciseMinutes: "" });
   const cutoff = addDays(todayISO(), -range);
   const activity = (patient.activity || []).filter((a) => a.date >= cutoff);
+  const todayAct = (patient.activity || []).find((a) => a.date === todayISO());
+  const stepGoal = patient.goals?.steps || 8000;
   const chartData = activity.map((a) => ({ date: a.date.slice(5), steps: a.steps }));
   const totals = activity.reduce((acc, a) => ({ steps: acc.steps + a.steps, distance: acc.distance + a.distanceKm, energy: acc.energy + a.activeEnergyKcal, exercise: acc.exercise + a.exerciseMinutes }), { steps: 0, distance: 0, energy: 0, exercise: 0 });
   const workouts = (patient.workouts || []).filter((w) => w.date >= cutoff);
+
+  const saveDailySteps = async () => {
+    if (!stepForm.steps) return;
+    const today = todayISO();
+    const steps = Number(stepForm.steps);
+    const entry = {
+      id: uid(),
+      date: today,
+      steps,
+      distanceKm: stepForm.distanceKm ? Number(stepForm.distanceKm) : round1((steps * 0.75) / 1000),
+      activeEnergyKcal: stepForm.activeEnergyKcal ? Number(stepForm.activeEnergyKcal) : Math.round(steps * 0.04),
+      exerciseMinutes: stepForm.exerciseMinutes ? Number(stepForm.exerciseMinutes) : Math.round(steps / 100),
+    };
+    await updatePatient(patient.id, (p) => {
+      const exists = (p.activity || []).some((a) => a.date === today);
+      const next = exists
+        ? p.activity.map((a) => (a.date === today ? { ...a, ...entry } : a))
+        : [...(p.activity || []), entry];
+      return { ...p, activity: next };
+    });
+    setStepForm({ steps: "", distanceKm: "", activeEnergyKcal: "", exerciseMinutes: "" });
+    setShowStepsForm(false);
+    toast("Daily activity saved");
+  };
 
   const saveWorkout = async () => {
     if (!form.durationMin) return;
@@ -193,7 +370,35 @@ function ActivitySection({ patient, updatePatient }) {
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <SegmentedControl options={RANGE_OPTIONS.slice(0, 3)} value={range} onChange={setRange} />
+        <button onClick={() => setShowStepsForm((s) => !s)} className="flex items-center gap-1 text-[13px] font-medium px-3 py-1.5 rounded-[10px] border" style={{ borderColor: COLORS.hair, color: COLORS.primary }}>
+          <Plus size={14} /> Log today's steps
+        </button>
       </div>
+
+      {showStepsForm && (
+        <Card className="p-4 mb-4">
+          <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Today's Steps</div>
+          <div className="grid sm:grid-cols-4 gap-3">
+            <Field label="Steps" type="number" value={stepForm.steps} onChange={(e) => setStepForm((f) => ({ ...f, steps: e.target.value }))} />
+            <Field label="Distance (km)" type="number" value={stepForm.distanceKm} onChange={(e) => setStepForm((f) => ({ ...f, distanceKm: e.target.value }))} />
+            <Field label="Energy (kcal)" type="number" value={stepForm.activeEnergyKcal} onChange={(e) => setStepForm((f) => ({ ...f, activeEnergyKcal: e.target.value }))} />
+            <Field label="Exercise (min)" type="number" value={stepForm.exerciseMinutes} onChange={(e) => setStepForm((f) => ({ ...f, exerciseMinutes: e.target.value }))} />
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button onClick={saveDailySteps} className="text-[13px] font-medium px-4 py-2 rounded-[10px] text-white" style={{ background: COLORS.primary }}>Save activity</button>
+            <button onClick={() => setShowStepsForm(false)} className="text-[13px] px-3 py-2" style={{ color: COLORS.inkSoft }}>Cancel</button>
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-4 mb-4 flex items-center gap-4">
+        <RingProgress value={todayAct?.steps || 0} max={stepGoal} color={COLORS.success} size={64} />
+        <div>
+          <div className="text-[13px] font-medium" style={{ color: COLORS.inkSoft }}>Today's step goal</div>
+          <div className="text-[20px] font-semibold tabular-nums">{(todayAct?.steps || 0).toLocaleString()} <span className="text-[13px] font-normal" style={{ color: COLORS.inkSoft }}>/ {stepGoal.toLocaleString()} steps</span></div>
+        </div>
+      </Card>
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <StatChip icon={Footprints} tint={COLORS.successSoft} fg={COLORS.success} label="Steps" value={totals.steps.toLocaleString()} />
         <StatChip icon={ActivityIcon} tint={COLORS.infoSoft} fg={COLORS.info} label="Distance" value={`${round1(totals.distance)} km`} />
@@ -202,17 +407,21 @@ function ActivitySection({ patient, updatePatient }) {
       </div>
       <Card className="p-5 mb-4">
         <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Steps</div>
-        <div style={{ width: "100%", height: 180 }}>
-          <ResponsiveContainer>
-            <BarChart data={chartData}>
-              <CartesianGrid stroke={COLORS.hair} vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: `1px solid ${COLORS.hair}`, fontSize: 12 }} />
-              <Bar dataKey="steps" fill={COLORS.success} radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {chartData.length === 0 ? (
+          <EmptyState icon={Footprints} title="No step data recorded" body="Log today's steps to start viewing your daily activity chart." />
+        ) : (
+          <div style={{ width: "100%", height: 180 }}>
+            <ResponsiveContainer>
+              <BarChart data={chartData}>
+                <CartesianGrid stroke={COLORS.hair} vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="steps" fill={COLORS.success} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </Card>
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3">
@@ -220,13 +429,16 @@ function ActivitySection({ patient, updatePatient }) {
           <button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-1 text-[13px] font-medium" style={{ color: COLORS.primary }}><Plus size={14} /> Log workout</button>
         </div>
         {showForm && (
-          <div className="grid sm:grid-cols-2 gap-3 mb-4 p-3 rounded-[16px]" style={{ background: COLORS.surface2 }}>
+          <div className="grid sm:grid-cols-2 gap-3 mb-4 p-4 rounded-[16px]" style={{ background: COLORS.surface2 }}>
             <Select label="Type" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} options={WORKOUT_TYPES} />
             <Field label="Duration (min)" type="number" value={form.durationMin} onChange={(e) => setForm((f) => ({ ...f, durationMin: e.target.value }))} />
             <Field label="Distance (km)" type="number" value={form.distanceKm} onChange={(e) => setForm((f) => ({ ...f, distanceKm: e.target.value }))} />
             <Field label="Calories" type="number" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} />
             <Field label="Avg heart rate" type="number" value={form.avgHeartRate} onChange={(e) => setForm((f) => ({ ...f, avgHeartRate: e.target.value }))} />
-            <div className="sm:col-span-2"><button onClick={saveWorkout} className="text-[13.5px] font-medium px-4 py-2.5 rounded-full text-white" style={{ background: COLORS.primary }}>Save workout</button></div>
+            <div className="sm:col-span-2 flex gap-2">
+              <button onClick={saveWorkout} className="text-[13.5px] font-medium px-4 py-2.5 rounded-[10px] text-white" style={{ background: COLORS.primary }}>Save workout</button>
+              <button onClick={() => setShowForm(false)} className="text-[13.5px] px-4 py-2.5" style={{ color: COLORS.inkSoft }}>Cancel</button>
+            </div>
           </div>
         )}
         {workouts.length === 0 ? <EmptyState icon={ActivityIcon} title="No workouts logged" body="Log a workout to see it here." /> : (
@@ -251,18 +463,80 @@ function ActivitySection({ patient, updatePatient }) {
 
 function SleepSection({ patient, updatePatient }) {
   const [range, setRange] = useState(14);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ date: todayISO(), durationHours: "7.5", bedtime: "23:00", wake: "06:30", score: "82" });
   const cutoff = addDays(todayISO(), -range);
   const sleep = (patient.sleep || []).filter((s) => s.date >= cutoff);
   const chartData = sleep.map((s) => ({ date: s.date.slice(5), hours: round1(s.durationMin / 60) }));
   const avgHours = sleep.length ? round1(sleep.reduce((a, s) => a + s.durationMin, 0) / sleep.length / 60) : 0;
   const avgScore = sleep.length ? Math.round(sleep.reduce((a, s) => a + s.score, 0) / sleep.length) : 0;
   const last = sleep[sleep.length - 1];
+  const sleepGoalH = patient.goals?.sleepHours || 8;
+
+  const saveSleep = async () => {
+    const mins = Math.round(Number(form.durationHours) * 60);
+    if (!mins || mins <= 0) return;
+    const entry = {
+      id: uid(),
+      date: form.date || todayISO(),
+      durationMin: mins,
+      bedtime: form.bedtime || "23:00",
+      wake: form.wake || "06:30",
+      score: Math.min(100, Math.max(0, Number(form.score) || 80)),
+      stages: {
+        deep: Math.round(mins * 0.2),
+        rem: Math.round(mins * 0.22),
+        core: Math.round(mins * 0.52),
+        awake: Math.round(mins * 0.06),
+      },
+    };
+    await updatePatient(patient.id, (p) => {
+      const exists = (p.sleep || []).some((s) => s.date === entry.date);
+      const next = exists
+        ? p.sleep.map((s) => (s.date === entry.date ? { ...s, ...entry } : s))
+        : [...(p.sleep || []), entry];
+      return { ...p, sleep: next };
+    });
+    setShowForm(false);
+    toast("Sleep entry saved");
+  };
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <SegmentedControl options={[{ value: 7, label: "7D" }, { value: 14, label: "14D" }, { value: 30, label: "30D" }]} value={range} onChange={setRange} />
+        <button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-1 text-[13px] font-medium px-3 py-1.5 rounded-[10px] border" style={{ borderColor: COLORS.hair, color: COLORS.primary }}>
+          <Plus size={14} /> Log sleep
+        </button>
       </div>
+
+      {showForm && (
+        <Card className="p-4 mb-4">
+          <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Log Sleep</div>
+          <div className="grid sm:grid-cols-5 gap-3">
+            <Field label="Date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+            <Field label="Duration (hrs)" type="number" step="0.5" value={form.durationHours} onChange={(e) => setForm((f) => ({ ...f, durationHours: e.target.value }))} />
+            <Field label="Bedtime" type="time" value={form.bedtime} onChange={(e) => setForm((f) => ({ ...f, bedtime: e.target.value }))} />
+            <Field label="Wake" type="time" value={form.wake} onChange={(e) => setForm((f) => ({ ...f, wake: e.target.value }))} />
+            <Field label="Score (0–100)" type="number" value={form.score} onChange={(e) => setForm((f) => ({ ...f, score: e.target.value }))} />
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button onClick={saveSleep} className="text-[13px] font-medium px-4 py-2 rounded-[10px] text-white" style={{ background: COLORS.primary }}>Save sleep</button>
+            <button onClick={() => setShowForm(false)} className="text-[13px] px-3 py-2" style={{ color: COLORS.inkSoft }}>Cancel</button>
+          </div>
+        </Card>
+      )}
+
+      {last && (
+        <Card className="p-4 mb-4 flex items-center gap-4">
+          <RingProgress value={round1(last.durationMin / 60)} max={sleepGoalH} color={COLORS.lavender} size={64} />
+          <div>
+            <div className="text-[13px] font-medium" style={{ color: COLORS.inkSoft }}>Last night vs {sleepGoalH}h target</div>
+            <div className="text-[20px] font-semibold tabular-nums">{round1(last.durationMin / 60)}h <span className="text-[13px] font-normal" style={{ color: COLORS.inkSoft }}>· score {last.score}</span></div>
+          </div>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <StatChip icon={Moon} tint={COLORS.lavenderSoft} fg={COLORS.lavender} label="Avg duration" value={`${avgHours}h`} />
         <StatChip icon={TrendingUp} tint={COLORS.infoSoft} fg={COLORS.info} label="Avg score" value={avgScore} />
@@ -271,17 +545,21 @@ function SleepSection({ patient, updatePatient }) {
       </div>
       <Card className="p-5 mb-4">
         <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Sleep duration</div>
-        <div style={{ width: "100%", height: 180 }}>
-          <ResponsiveContainer>
-            <BarChart data={chartData}>
-              <CartesianGrid stroke={COLORS.hair} vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: `1px solid ${COLORS.hair}`, fontSize: 12 }} />
-              <Bar dataKey="hours" fill={COLORS.lavender} radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {chartData.length === 0 ? (
+          <EmptyState icon={Moon} title="No sleep logged" body="Log your sleep duration and schedule to track rest consistency." />
+        ) : (
+          <div style={{ width: "100%", height: 180 }}>
+            <ResponsiveContainer>
+              <BarChart data={chartData}>
+                <CartesianGrid stroke={COLORS.hair} vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="hours" fill={COLORS.lavender} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </Card>
       {last && (
         <Card className="p-5">
@@ -302,22 +580,80 @@ function SleepSection({ patient, updatePatient }) {
 
 /* -------------------------------- body -------------------------------- */
 
+function BMIGauge({ bmi, bmiInfo }) {
+  if (bmi == null) return null;
+  // Clamp BMI between 15–40 for display
+  const pct = Math.min(100, Math.max(0, ((bmi - 15) / (40 - 15)) * 100));
+  const color = bmiInfo?.tone === "good" ? COLORS.success : bmiInfo?.tone === "monitor" ? COLORS.amber : COLORS.danger;
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-[11.5px] mb-1" style={{ color: COLORS.inkSoft }}>
+        <span>Underweight</span><span>Normal</span><span>Overweight</span><span>Obese</span>
+      </div>
+      <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: COLORS.surface2 }}>
+        <div style={{ width: `${pct}%`, background: color, height: "100%", borderRadius: 999, transition: "width 0.4s" }} />
+      </div>
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-[20px] font-bold tabular-nums">{bmi}</span>
+        {bmiInfo && <TrendPill direction={bmiInfo.tone} label={bmiInfo.label} />}
+      </div>
+    </div>
+  );
+}
+
 function BodySection({ patient, updatePatient }) {
   const body = patient.body || {};
-  const latestWeight = patient.healthRecords[patient.healthRecords.length - 1]?.weight;
-  const bmi = latestWeight && body.heightCm ? round1(latestWeight / Math.pow(body.heightCm / 100, 2)) : null;
+  const weightRecords = (patient.healthRecords || []).filter((r) => r.weight != null);
+  const latestWeight = weightRecords[weightRecords.length - 1]?.weight ?? body.history?.[body.history.length - 1]?.weightKg;
+  const bmi = computeBMI(latestWeight, body.heightCm);
+  const bmiInfo = bmiCategory(bmi);
   const [weight, setWeight] = useState("");
+  const [editingMetrics, setEditingMetrics] = useState(false);
+  const [bodyForm, setBodyForm] = useState({
+    heightCm: body.heightCm ?? "",
+    bodyFatPct: body.bodyFatPct ?? "",
+    leanMassKg: body.leanMassKg ?? "",
+    waistCm: body.waistCm ?? "",
+  });
 
   const logWeight = async () => {
     if (!weight) return;
     await updatePatient(patient.id, (p) => {
       const today = todayISO();
       const existing = p.healthRecords.find((r) => r.date === today);
-      const healthRecords = existing ? p.healthRecords.map((r) => (r.date === today ? { ...r, weight: Number(weight) } : r)) : [...p.healthRecords, { id: uid(), date: today, weight: Number(weight) }];
-      return { ...p, healthRecords, body: { ...p.body, history: [...(p.body?.history || []), { date: today, weightKg: Number(weight) }] } };
+      const healthRecords = existing
+        ? p.healthRecords.map((r) => (r.date === today ? { ...r, weight: Number(weight) } : r))
+        : [...p.healthRecords, { id: uid(), date: today, weight: Number(weight) }];
+      return { ...p, healthRecords, body: { ...p.body, history: [...(p.body?.history || []), { id: uid(), date: today, weightKg: Number(weight) }] } };
     });
     setWeight("");
     toast("Weight logged");
+  };
+
+  const saveBodyProfile = async () => {
+    await updatePatient(patient.id, (p) => ({
+      ...p,
+      body: {
+        ...(p.body || {}),
+        heightCm: bodyForm.heightCm ? Number(bodyForm.heightCm) : null,
+        bodyFatPct: bodyForm.bodyFatPct ? Number(bodyForm.bodyFatPct) : null,
+        leanMassKg: bodyForm.leanMassKg ? Number(bodyForm.leanMassKg) : null,
+        waistCm: bodyForm.waistCm ? Number(bodyForm.waistCm) : null,
+      },
+    }));
+    setEditingMetrics(false);
+    toast("Body measurements updated");
+  };
+
+  const deleteWeightEntry = async (idxFromStart) => {
+    await updatePatient(patient.id, (p) => ({
+      ...p,
+      body: {
+        ...(p.body || {}),
+        history: (p.body?.history || []).filter((_, i) => i !== idxFromStart),
+      },
+    }));
+    toast("Weight history entry removed");
   };
 
   return (
@@ -325,18 +661,60 @@ function BodySection({ patient, updatePatient }) {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
         <Card className="p-4"><div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>Weight</div><div className="text-[20px] font-semibold mt-1">{latestWeight ?? "—"} kg</div></Card>
         <Card className="p-4"><div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>Height</div><div className="text-[20px] font-semibold mt-1">{body.heightCm ?? "—"} cm</div></Card>
-        <Card className="p-4"><div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>BMI</div><div className="text-[20px] font-semibold mt-1">{bmi ?? "—"}</div></Card>
+        <Card className="p-4 sm:col-span-1 col-span-2">
+          <div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>BMI</div>
+          <BMIGauge bmi={bmi} bmiInfo={bmiInfo} />
+        </Card>
         <Card className="p-4"><div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>Body fat</div><div className="text-[20px] font-semibold mt-1">{body.bodyFatPct ?? "—"}%</div></Card>
         <Card className="p-4"><div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>Lean mass</div><div className="text-[20px] font-semibold mt-1">{body.leanMassKg ?? "—"} kg</div></Card>
         <Card className="p-4"><div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>Waist</div><div className="text-[20px] font-semibold mt-1">{body.waistCm ?? "—"} cm</div></Card>
       </div>
-      <Card className="p-5">
-        <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Log weight</div>
-        <div className="flex items-end gap-3">
-          <div className="w-40"><Field label="Weight (kg)" type="number" value={weight} onChange={(e) => setWeight(e.target.value)} /></div>
-          <button onClick={logWeight} className="text-[13.5px] font-medium px-4 py-2.5 rounded-full text-white" style={{ background: COLORS.primary }}>Save</button>
-        </div>
-      </Card>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Card className="p-5">
+          <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Log weight</div>
+          <div className="flex items-end gap-3">
+            <div className="w-40"><Field label="Weight (kg)" type="number" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} /></div>
+            <button onClick={logWeight} className="text-[13.5px] font-medium px-4 py-2.5 rounded-[10px] text-white" style={{ background: COLORS.primary }}>Save</button>
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[13px] font-semibold" style={{ color: COLORS.inkSoft }}>Edit body profile</div>
+            <button onClick={() => setEditingMetrics((v) => !v)} className="text-[12.5px] font-medium" style={{ color: COLORS.primary }}>
+              {editingMetrics ? "Close" : "Edit"}
+            </button>
+          </div>
+          {editingMetrics ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Height (cm)" type="number" value={bodyForm.heightCm} onChange={(e) => setBodyForm((f) => ({ ...f, heightCm: e.target.value }))} />
+              <Field label="Body fat (%)" type="number" step="0.1" value={bodyForm.bodyFatPct} onChange={(e) => setBodyForm((f) => ({ ...f, bodyFatPct: e.target.value }))} />
+              <Field label="Lean mass (kg)" type="number" step="0.1" value={bodyForm.leanMassKg} onChange={(e) => setBodyForm((f) => ({ ...f, leanMassKg: e.target.value }))} />
+              <Field label="Waist (cm)" type="number" step="0.1" value={bodyForm.waistCm} onChange={(e) => setBodyForm((f) => ({ ...f, waistCm: e.target.value }))} />
+              <div className="col-span-2">
+                <button onClick={saveBodyProfile} className="text-[13px] font-medium px-4 py-2 rounded-[10px] text-white" style={{ background: COLORS.primary }}>Save profile</button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[13px]" style={{ color: COLORS.inkSoft }}>Keep height up to date for automatic BMI calculation.</p>
+          )}
+        </Card>
+      </div>
+      {(body.history || []).length > 0 && (
+        <Card className="p-5 mt-4">
+          <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Weight history</div>
+          <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
+            {[...(body.history || [])].map((entry, idx) => ({ entry, idx })).reverse().map(({ entry, idx }) => (
+              <div key={entry.id || `${entry.date}-${idx}`} className="flex items-center justify-between text-[13.5px] py-1.5 border-b last:border-0" style={{ borderColor: COLORS.hair }}>
+                <span style={{ color: COLORS.inkSoft }}>{entry.date}</span>
+                <span className="font-medium">{entry.weightKg} kg</span>
+                <button onClick={() => deleteWeightEntry(idx)} aria-label="Delete weight entry" className="p-1 rounded-full hover:bg-black/5" style={{ color: COLORS.danger }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -347,6 +725,8 @@ function NutritionSection({ patient, updatePatient }) {
   const today = todayISO();
   const meals = (patient.nutrition || []).filter((n) => n.date === today);
   const totals = meals.reduce((a, m) => ({ calories: a.calories + m.calories, protein: a.protein + m.proteinG, carbs: a.carbs + m.carbsG, fat: a.fat + m.fatG }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const activeBurned = (patient.activity || []).find((a) => a.date === today)?.activeEnergyKcal || 0;
+  const netCalories = totals.calories - activeBurned;
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", calories: "", proteinG: "", carbsG: "", fatG: "" });
 
@@ -360,27 +740,45 @@ function NutritionSection({ patient, updatePatient }) {
     toast("Meal logged");
   };
 
+  const deleteMeal = async (mealId) => {
+    await updatePatient(patient.id, (p) => ({
+      ...p,
+      nutrition: (p.nutrition || []).filter((m) => m.id !== mealId),
+    }));
+    toast("Meal deleted");
+  };
+
   return (
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-        <StatChip icon={Apple} tint={COLORS.warningSoft} fg={COLORS.amber} label="Calories" value={totals.calories} />
+        <StatChip icon={Apple} tint={COLORS.warningSoft} fg={COLORS.amber} label="Calories in" value={totals.calories} />
         <StatChip icon={Apple} tint={COLORS.successSoft} fg={COLORS.success} label="Protein" value={`${totals.protein}g`} />
         <StatChip icon={Apple} tint={COLORS.infoSoft} fg={COLORS.info} label="Carbs" value={`${totals.carbs}g`} />
         <StatChip icon={Apple} tint={COLORS.lavenderSoft} fg={COLORS.lavender} label="Fat" value={`${totals.fat}g`} />
       </div>
+      <Card className="p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="text-[12.5px]" style={{ color: COLORS.inkSoft }}>Today's calorie balance</div>
+          <div className="text-[15px] font-semibold">Intake {totals.calories} kcal − Active burn {activeBurned} kcal = {netCalories} net kcal</div>
+        </div>
+        <TrendPill direction={netCalories > 2400 ? "monitor" : "stable"} label={netCalories > 2400 ? "Surplus" : "Balanced"} />
+      </Card>
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[13px] font-semibold" style={{ color: COLORS.inkSoft }}>Today's meals</div>
           <button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-1 text-[13px] font-medium" style={{ color: COLORS.primary }}><Plus size={14} /> Log meal</button>
         </div>
         {showForm && (
-          <div className="grid sm:grid-cols-2 gap-3 mb-4 p-3 rounded-[16px]" style={{ background: COLORS.surface2 }}>
+          <div className="grid sm:grid-cols-2 gap-3 mb-4 p-4 rounded-[16px]" style={{ background: COLORS.surface2 }}>
             <Field label="Meal / food" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             <Field label="Calories" type="number" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} />
             <Field label="Protein (g)" type="number" value={form.proteinG} onChange={(e) => setForm((f) => ({ ...f, proteinG: e.target.value }))} />
             <Field label="Carbs (g)" type="number" value={form.carbsG} onChange={(e) => setForm((f) => ({ ...f, carbsG: e.target.value }))} />
             <Field label="Fat (g)" type="number" value={form.fatG} onChange={(e) => setForm((f) => ({ ...f, fatG: e.target.value }))} />
-            <div><button onClick={saveMeal} className="text-[13.5px] font-medium px-4 py-2.5 rounded-full text-white mt-6" style={{ background: COLORS.primary }}>Save</button></div>
+            <div className="flex gap-2 mt-1">
+              <button onClick={saveMeal} className="text-[13.5px] font-medium px-4 py-2.5 rounded-[10px] text-white" style={{ background: COLORS.primary }}>Save</button>
+              <button onClick={() => setShowForm(false)} className="text-[13.5px] px-4 py-2.5" style={{ color: COLORS.inkSoft }}>Cancel</button>
+            </div>
           </div>
         )}
         {meals.length === 0 ? <EmptyState icon={Apple} title="No meals logged today" body="Log a meal to track your nutrition." /> : (
@@ -388,7 +786,12 @@ function NutritionSection({ patient, updatePatient }) {
             {meals.map((m) => (
               <div key={m.id} className="flex items-center justify-between text-[13.5px] py-2 border-b last:border-0" style={{ borderColor: COLORS.hair }}>
                 <span className="font-medium">{m.name}</span>
-                <span style={{ color: COLORS.inkSoft }}>{m.calories} kcal · {m.time}</span>
+                <div className="flex items-center gap-3">
+                  <span style={{ color: COLORS.inkSoft }}>{m.calories} kcal · {m.time}</span>
+                  <button onClick={() => deleteMeal(m.id)} aria-label={`Delete ${m.name}`} className="p-1 rounded-full hover:bg-black/5" style={{ color: COLORS.danger }}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -400,35 +803,75 @@ function NutritionSection({ patient, updatePatient }) {
 
 function HydrationSection({ patient, updatePatient }) {
   const today = todayISO();
-  const rec = (patient.hydration || []).find((h) => h.date === today) || { ml: 0, targetMl: 2000 };
-  const pct = Math.min(100, Math.round((rec.ml / rec.targetMl) * 100));
+  const list = patient.hydration || [];
+  const rec = list.find((h) => h.date === today) || { ml: 0, targetMl: 2000 };
+  const [targetInput, setTargetInput] = useState(String(rec.targetMl || 2000));
+  const last7 = list.filter((h) => h.date >= addDays(today, -6)).map((h) => ({ date: h.date.slice(5), ml: h.ml }));
 
-  const addWater = async (ml) => {
+  const addWater = async (delta) => {
     await updatePatient(patient.id, (p) => {
       const existing = p.hydration?.find((h) => h.date === today);
       const hydration = existing
-        ? p.hydration.map((h) => (h.date === today ? { ...h, ml: h.ml + ml } : h))
-        : [...(p.hydration || []), { id: uid(), date: today, ml, targetMl: 2000 }];
+        ? p.hydration.map((h) => (h.date === today ? { ...h, ml: Math.max(0, h.ml + delta) } : h))
+        : [...(p.hydration || []), { id: uid(), date: today, ml: Math.max(0, delta), targetMl: Number(targetInput) || 2000 }];
       return { ...p, hydration };
     });
   };
 
+  const updateTarget = async () => {
+    const t = Math.max(500, Number(targetInput) || 2000);
+    await updatePatient(patient.id, (p) => {
+      const existing = p.hydration?.find((h) => h.date === today);
+      const hydration = existing
+        ? p.hydration.map((h) => (h.date === today ? { ...h, targetMl: t } : h))
+        : [...(p.hydration || []), { id: uid(), date: today, ml: 0, targetMl: t }];
+      return { ...p, hydration };
+    });
+    toast(`Daily hydration goal set to ${t} ml`);
+  };
+
   return (
-    <Card className="p-5">
-      <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Hydration — today</div>
-      <div className="flex items-center gap-4 mb-4">
-        <Droplets size={28} color={COLORS.info} />
-        <div>
-          <div className="text-[22px] font-semibold">{rec.ml} ml <span className="text-[13px] font-normal" style={{ color: COLORS.inkSoft }}>/ {rec.targetMl} ml</span></div>
-          <div className="w-40 h-2 rounded-full mt-1.5" style={{ background: COLORS.hair }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: COLORS.info }} /></div>
+    <div className="space-y-4">
+      <Card className="p-5">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div className="flex items-center gap-4">
+            <RingProgress value={rec.ml} max={rec.targetMl} color={COLORS.info} size={64} />
+            <div>
+              <div className="text-[13px] font-semibold" style={{ color: COLORS.inkSoft }}>Hydration — today</div>
+              <div className="text-[22px] font-semibold mt-0.5 tabular-nums">{rec.ml} ml <span className="text-[13px] font-normal" style={{ color: COLORS.inkSoft }}>/ {rec.targetMl} ml</span></div>
+            </div>
+          </div>
+          <div className="flex items-end gap-2">
+            <div className="w-28"><Field label="Goal (ml)" type="number" step="100" value={targetInput} onChange={(e) => setTargetInput(e.target.value)} /></div>
+            <button onClick={updateTarget} className="text-[12.5px] font-medium px-3 py-2 rounded-[10px] border" style={{ borderColor: COLORS.hair, color: COLORS.primary }}>Set</button>
+          </div>
         </div>
-      </div>
-      <div className="flex gap-2">
-        {[125, 250, 500].map((ml) => (
-          <button key={ml} onClick={() => addWater(ml)} className="text-[13px] font-medium px-3.5 py-2 rounded-full border" style={{ borderColor: COLORS.hair, color: COLORS.info }}>+{ml} ml</button>
-        ))}
-      </div>
-    </Card>
+        <div className="flex flex-wrap gap-2">
+          {[250, 500, 750].map((ml) => (
+            <button key={ml} onClick={() => addWater(ml)} className="text-[13px] font-medium px-3.5 py-2 rounded-[10px] border" style={{ borderColor: COLORS.hair, color: COLORS.info }}>+{ml} ml</button>
+          ))}
+          {rec.ml > 0 && (
+            <button onClick={() => addWater(-250)} className="text-[13px] font-medium px-3.5 py-2 rounded-[10px] border" style={{ borderColor: COLORS.hair, color: COLORS.inkSoft }}>-250 ml</button>
+          )}
+        </div>
+      </Card>
+      {last7.length > 0 && (
+        <Card className="p-5">
+          <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>7-day intake</div>
+          <div style={{ width: "100%", height: 160 }}>
+            <ResponsiveContainer>
+              <BarChart data={last7}>
+                <CartesianGrid stroke={COLORS.hair} vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "var(--color-ink-soft)" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="ml" fill={COLORS.info} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -480,7 +923,7 @@ function MentalWellbeingSection({ patient, updatePatient }) {
         <textarea value={journal} onChange={(e) => setJournal(e.target.value)} rows={3} placeholder="What's on your mind?"
           className="w-full px-3 py-2.5 rounded-[14px] text-[14px] border outline-none focus:ring-2 focus:ring-offset-1"
           style={{ borderColor: COLORS.hair, "--tw-ring-color": COLORS.primary }} />
-        <button onClick={saveJournal} className="text-[13.5px] font-medium px-4 py-2.5 rounded-full text-white mt-3" style={{ background: COLORS.primary }}>Save entry</button>
+        <button onClick={saveJournal} className="text-[13.5px] font-medium px-4 py-2.5 rounded-[10px] text-white mt-3" style={{ background: COLORS.primary }}>Save entry</button>
       </Card>
       <Card className="p-5">
         <div className="text-[13px] font-semibold mb-3" style={{ color: COLORS.inkSoft }}>Recent entries</div>
@@ -586,18 +1029,25 @@ export default function HealthHub({ patient, updatePatient, initialSection, init
   return (
     <div>
       <Heading size={26} className="mb-4">Health</Heading>
-      <div className="flex gap-2 overflow-x-auto pb-2 mb-5 -mx-1 px-1">
-        {CATEGORY_TABS.map((t) => {
-          const Icon = t.icon;
-          const active = section === t.id;
-          return (
-            <button key={t.id} onClick={() => setSection(t.id)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[13px] font-medium flex-shrink-0 focus:outline-none"
-              style={{ background: active ? COLORS.primary : COLORS.surface2, color: active ? "white" : COLORS.inkSoft }}>
-              <Icon size={14} /> {t.label}
-            </button>
-          );
-        })}
+      {/* Horizontally scrollable pill tab bar */}
+      <div
+        className="flex gap-1.5 overflow-x-auto pb-1 mb-5 -mx-1 px-1"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {CATEGORY_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setSection(tab.id)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full whitespace-nowrap text-[13px] font-medium flex-shrink-0 focus:outline-none"
+            style={{
+              background: section === tab.id ? COLORS.primary : COLORS.surface2,
+              color: section === tab.id ? "white" : COLORS.inkSoft,
+            }}
+          >
+            <tab.icon size={14} strokeWidth={2.2} />
+            {tab.label}
+          </button>
+        ))}
       </div>
       {section === "vitals" && <VitalsGrid patient={patient} goToMetric={setMetric} />}
       {section === "activity" && <ActivitySection patient={patient} updatePatient={updatePatient} />}

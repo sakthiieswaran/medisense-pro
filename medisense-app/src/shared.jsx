@@ -10,11 +10,10 @@ import { Check, X, AlertTriangle, Clock, CalendarClock, Sun, Moon } from "lucide
    circular imports.
    ========================================================================= */
 
-export const FONT_STACK = `-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Helvetica Neue", Arial, sans-serif`;
+export const FONT_STACK = `"Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif`;
 
 export const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 * { -webkit-font-smoothing: antialiased; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }`;
@@ -27,6 +26,7 @@ export const COLORS = {
   inkSoft: "var(--color-ink-soft)",
   inkFaint: "var(--color-ink-faint)",
   coral: "var(--color-coral)",
+  danger: "var(--color-coral)",
   amber: "var(--color-amber)",
   success: "var(--color-success)",
   cyan: "var(--color-cyan)",
@@ -59,7 +59,10 @@ export const FADE = { duration: 0.15, ease: "easeOut" };
 
 /* ---------------------------------- utils --------------------------------- */
 
-export const uid = () => Math.random().toString(36).slice(2, 10);
+export const uid = () =>
+  typeof globalThis !== "undefined" && globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 export const todayISO = () => new Date().toISOString().slice(0, 10);
 export const fmtDate = (d) =>
   new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -79,6 +82,36 @@ export const addDays = (iso, n) => {
 export const dayOfWeek = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" });
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 export const round1 = (n) => Math.round(n * 10) / 10;
+
+export function computeBMI(weightKg, heightCm) {
+  const w = Number(weightKg);
+  const h = Number(heightCm);
+  if (!w || !h || w <= 0 || h <= 0) return null;
+  return round1(w / Math.pow(h / 100, 2));
+}
+
+export function bmiCategory(bmi) {
+  if (bmi == null) return null;
+  if (bmi < 18.5) return { label: "Underweight", tone: "monitor" };
+  if (bmi < 25) return { label: "Healthy weight", tone: "stable" };
+  if (bmi < 30) return { label: "Overweight", tone: "monitor" };
+  return { label: "Obesity range", tone: "attention" };
+}
+
+export function computeRefillInfo(med) {
+  if (!med || med.currentStock == null || med.currentStock === "") return null;
+  const stock = Number(med.currentStock);
+  if (Number.isNaN(stock) || stock < 0) return null;
+  const perDay = Math.max(1, Number(med.timesPerDay || med.times?.length || 1));
+  const daysRemaining = Math.floor(stock / perDay);
+  const threshold = Number(med.refillThreshold ?? 7);
+  return {
+    stock,
+    daysRemaining,
+    lowStock: daysRemaining <= threshold,
+    criticalStock: daysRemaining <= 2,
+  };
+}
 
 /* ------------------------------- theme (light / dark) ------------------------------- */
 
@@ -221,8 +254,8 @@ export function ToastHost() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, transition: FADE }}
             transition={SPRING_UI}
-            className="px-4 py-3 rounded-[20px] text-[13.5px] font-medium flex items-center gap-2 pointer-events-auto"
-            style={{ background: "rgba(20, 21, 31, 0.85)", backdropFilter: "blur(20px) saturate(180%)", color: "white", boxShadow: "0 2px 6px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.16)" }}>
+            className="px-4 py-3 rounded-[16px] text-[13.5px] font-medium flex items-center gap-2 pointer-events-auto"
+            style={{ background: "rgba(15, 20, 25, 0.90)", backdropFilter: "blur(20px) saturate(180%)", color: "white", boxShadow: "0 2px 6px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.16)" }}>
             {t.type === "warning" ? <AlertTriangle size={15} className="flex-shrink-0" color={COLORS.amber} /> : t.type === "error" ? <X size={15} className="flex-shrink-0" color={COLORS.coral} /> : <Check size={15} className="flex-shrink-0" color={COLORS.success} />}
             {t.message}
           </motion.div>
@@ -259,7 +292,7 @@ export function ConfirmButton({ onConfirm, icon: Icon, label, confirmLabel = "Co
   }
   return (
     <motion.button whileTap={{ scale: 0.9 }} onClick={() => setConfirming(true)} aria-label={label} title={label}
-      className="p-2 rounded-[14px] hover:bg-black/5 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1">
+      className="p-2 rounded-[10px] hover:bg-black/5 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1">
       <Icon size={14} color={COLORS.coral} />
     </motion.button>
   );
@@ -310,7 +343,7 @@ export function SeverityDot({ severity }) {
 
 export function Card({ children, className = "", style = {} }) {
   return (
-    <div className={`rounded-[28px] border ${className}`}
+    <div className={`rounded-[20px] border ${className}`}
       style={{ background: COLORS.card, borderColor: COLORS.hair, boxShadow: COLORS.cardShadow, ...style }}>
       {children}
     </div>
@@ -325,10 +358,10 @@ export function MotionCard({ children, className = "", style = {}, onClick, whil
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
-      whileHover={shouldReduceMotion ? {} : { y: -3, scale: 1.012, boxShadow: "var(--color-card-shadow-hover)" }}
+      whileHover={shouldReduceMotion ? {} : { y: -2, scale: 1.01, boxShadow: "var(--color-card-shadow-hover)" }}
       whileTap={onClick ? { scale: whileTapScale } : {}}
       transition={SPRING_UI}
-      className={`rounded-[28px] border ${className}`}
+      className={`rounded-[20px] border ${className}`}
       style={{ background: COLORS.card, borderColor: COLORS.hair, boxShadow: COLORS.cardShadow, cursor: onClick ? "pointer" : "default", ...style }}>
       {children}
     </motion.div>
@@ -343,11 +376,41 @@ export function Heading({ children, size = 24, className = "" }) {
   );
 }
 
+export function PageHeader({ title, subtitle, action }) {
+  return (
+    <div className="flex items-start justify-between mb-6 gap-4">
+      <div>
+        <h1 className="font-bold text-[24px] tracking-tight" style={{ color: COLORS.ink, letterSpacing: "-0.02em" }}>{title}</h1>
+        {subtitle && <p className="text-[14px] mt-0.5" style={{ color: COLORS.inkSoft }}>{subtitle}</p>}
+      </div>
+      {action && <div className="flex-shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+export function Btn({ children, onClick, variant = "primary", size = "md", icon: Icon, disabled, type = "button", className = "" }) {
+  const sizes = { sm: "px-3 py-1.5 text-[12.5px]", md: "px-4 py-2.5 text-[13.5px]", lg: "px-5 py-3 text-[14.5px]" };
+  const variants = {
+    primary: { background: COLORS.primary, color: "white", border: "none" },
+    secondary: { background: "transparent", color: COLORS.primary, border: `1.5px solid ${COLORS.primary}` },
+    ghost: { background: "transparent", color: COLORS.inkSoft, border: `1px solid ${COLORS.hair}` },
+    danger: { background: COLORS.dangerSoft, color: COLORS.coral, border: "none" },
+  };
+  return (
+    <motion.button whileTap={{ scale: 0.97 }} type={type} onClick={onClick} disabled={disabled}
+      className={`inline-flex items-center gap-2 font-semibold rounded-[10px] focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${sizes[size]} ${className}`}
+      style={{ ...variants[variant], "--tw-ring-color": COLORS.primary }}>
+      {Icon && <Icon size={size === "sm" ? 13 : size === "lg" ? 17 : 15} strokeWidth={2.2} />}
+      {children}
+    </motion.button>
+  );
+}
+
 export function EmptyState({ icon: Icon, title, body }) {
   return (
     <div className="flex flex-col items-center text-center py-14 px-6">
-      <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ background: COLORS.mint }}>
-        <Icon size={22} color={COLORS.primary} />
+      <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ background: COLORS.mint }}>
+        <Icon size={20} color={COLORS.primary} />
       </div>
       <div className="font-semibold text-[15px]" style={{ color: COLORS.ink }}>{title}</div>
       <div className="text-[13px] mt-1 max-w-xs" style={{ color: COLORS.inkSoft }}>{body}</div>
@@ -486,13 +549,16 @@ export function ScheduleTimeline({ rows, onMark }) {
               <div className="text-[15px] font-semibold mt-0.5">{row.name} · {row.dosage}</div>
               <div className="text-[12.5px] mt-0.5" style={{ color: COLORS.inkSoft }}>{row.instructions}</div>
               {row.status === "Upcoming" && onMark && (
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <motion.button whileTap={{ scale: 0.93 }} transition={SPRING_UI} onClick={() => onMark(row, "Taken")}
                     className="text-[12.5px] font-medium px-3.5 py-2 rounded-full text-white hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-1"
                     style={{ background: COLORS.primary, "--tw-ring-color": COLORS.primary }}>Taken</motion.button>
+                  <motion.button whileTap={{ scale: 0.93 }} transition={SPRING_UI} onClick={() => onMark(row, "Skipped")}
+                    className="text-[12.5px] font-medium px-3.5 py-2 rounded-full border hover:bg-black/5 focus:outline-none focus:ring-2 focus:ring-offset-1"
+                    style={{ borderColor: COLORS.hair, color: COLORS.inkSoft, "--tw-ring-color": COLORS.hair }}>Skipped</motion.button>
                   <motion.button whileTap={{ scale: 0.93 }} transition={SPRING_UI} onClick={() => onMark(row, "Missed")}
                     className="text-[12.5px] font-medium px-3.5 py-2 rounded-full border hover:bg-black/5 focus:outline-none focus:ring-2 focus:ring-offset-1"
-                    style={{ borderColor: COLORS.hair, color: COLORS.inkSoft, "--tw-ring-color": COLORS.hair }}>Missed</motion.button>
+                    style={{ borderColor: COLORS.hair, color: COLORS.coral, "--tw-ring-color": COLORS.hair }}>Missed</motion.button>
                 </div>
               )}
             </div>
@@ -503,13 +569,44 @@ export function ScheduleTimeline({ rows, onMark }) {
   );
 }
 
-export function Field({ label, value, onChange, placeholder, type = "text" }) {
+export function SkeletonLine({ width = "100%", height = 14, className = "" }) {
+  return (
+    <div
+      className={`rounded-full animate-pulse ${className}`}
+      style={{ width, height, background: COLORS.surface2 }}
+    />
+  );
+}
+
+export function SkeletonCard({ lines = 3 }) {
+  return (
+    <Card className="p-5 space-y-3">
+      <SkeletonLine width="38%" height={16} />
+      {Array.from({ length: lines }).map((_, i) => (
+        <SkeletonLine key={i} width={i === lines - 1 ? "64%" : "100%"} height={13} />
+      ))}
+    </Card>
+  );
+}
+
+export function Field({ label, value, onChange, placeholder, type = "text", autoComplete, required = false, name, step, min, max }) {
   return (
     <label className="block">
       <div className="text-[13px] font-medium mb-1" style={{ color: COLORS.ink }}>{label}</div>
-      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
-        className="w-full px-3 py-2.5 rounded-[14px] text-[14px] border outline-none focus:ring-2 focus:ring-offset-1 transition-shadow"
-        style={{ borderColor: COLORS.hair, "--tw-ring-color": COLORS.primary }} />
+      <input
+        type={type}
+        name={name}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        required={required}
+        step={step}
+        min={min}
+        max={max}
+        className="w-full px-3 py-2.5 rounded-[10px] text-[14px] border outline-none focus:ring-2 focus:ring-offset-1 transition-shadow"
+        style={{ borderColor: COLORS.hair, "--tw-ring-color": COLORS.primary, background: COLORS.card, color: COLORS.ink }}
+      />
     </label>
   );
 }
@@ -519,8 +616,8 @@ export function Select({ label, value, onChange, options }) {
     <label className="block">
       <div className="text-[13px] font-medium mb-1" style={{ color: COLORS.ink }}>{label}</div>
       <select value={value} onChange={onChange}
-        className="w-full px-3 py-2.5 rounded-[14px] text-[14px] border outline-none focus:ring-2 focus:ring-offset-1 transition-shadow"
-        style={{ borderColor: COLORS.hair, "--tw-ring-color": COLORS.primary }}>
+        className="w-full px-3 py-2.5 rounded-[10px] text-[14px] border outline-none focus:ring-2 focus:ring-offset-1 transition-shadow"
+        style={{ borderColor: COLORS.hair, "--tw-ring-color": COLORS.primary, background: COLORS.card, color: COLORS.ink }}>
         {options.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
       </select>
     </label>
