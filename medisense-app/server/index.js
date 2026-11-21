@@ -732,7 +732,7 @@ export function createApp(options = {}) {
     "/api/auth/reset-password",
     authLimiter,
     [
-      body("token").isString().isLength({ min: 10 }).withMessage("Valid reset token is required."),
+      body("token").isString().isLength({ min: 6 }).withMessage("Valid reset token is required."),
       body("newPassword")
         .isString()
         .isLength({ min: 8, max: 128 })

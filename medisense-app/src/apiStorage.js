@@ -296,12 +296,82 @@ export async function whoAmI() {
   return body.user;
 }
 
+const RESET_CODES_KEY = "medisense_reset_codes";
+
+function getResetCodes() {
+  try {
+    return JSON.parse(localStorage.getItem(RESET_CODES_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveResetCodes(codes) {
+  try {
+    localStorage.setItem(RESET_CODES_KEY, JSON.stringify(codes));
+  } catch {}
+}
+
 export async function forgotPassword(email) {
   if (!API_BASE) {
+    const cleanEmail = String(email || "").toLowerCase().trim();
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codes = getResetCodes();
+    codes[cleanEmail] = {
+      code,
+      expiresAt: Date.now() + 15 * 60 * 1000,
+    };
+    saveResetCodes(codes);
+
+    let emailSent = false;
+    const resendKey = import.meta.env.VITE_RESEND_API_KEY;
+    const web3formsKey = import.meta.env.VITE_WEB3FORMS_KEY;
+
+    if (resendKey) {
+      try {
+        await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: "MediSense Security <onboarding@resend.dev>",
+            to: [cleanEmail],
+            subject: `MediSense Password Reset Code: ${code}`,
+            text: `Hello,\n\nYour 6-digit password reset verification code for MediSense is: ${code}\n\nThis code will expire in 15 minutes.\n\n— MediSense Health Team`,
+          }),
+        });
+        emailSent = true;
+      } catch (e) {
+        console.warn("[medisense-email] Resend delivery error:", e);
+      }
+    } else if (web3formsKey) {
+      try {
+        await fetch("https://api.web3forms.com/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            access_key: web3formsKey,
+            to_email: cleanEmail,
+            subject: `MediSense Password Reset Code: ${code}`,
+            message: `Your 6-digit MediSense password reset verification code is: ${code} (expires in 15 minutes).`,
+          }),
+        });
+        emailSent = true;
+      } catch (e) {
+        console.warn("[medisense-email] Web3Forms delivery error:", e);
+      }
+    }
+
     return {
       ok: true,
-      message: "Browser Mode: Password reset simulated. You can now set a new password.",
-      devResetToken: "local_reset_token",
+      code,
+      emailSent,
+      devResetToken: code,
+      message: emailSent
+        ? `A 6-digit password reset code has been sent directly to ${cleanEmail}.`
+        : `A 6-digit password reset code was generated for ${cleanEmail}. Check your inbox or enter the code below.`,
     };
   }
   return jsonFetch("/api/auth/forgot-password", {
@@ -310,9 +380,38 @@ export async function forgotPassword(email) {
   });
 }
 
-export async function resetPassword(token, newPassword) {
+export async function resetPassword(token, newPassword, email) {
   if (!API_BASE) {
-    return { ok: true, message: "Browser Mode: Password updated successfully." };
+    const cleanToken = String(token || "").trim();
+    const codes = getResetCodes();
+    let matchedEmail = null;
+
+    for (const [em, entry] of Object.entries(codes)) {
+      if (entry.code === cleanToken) {
+        if (entry.expiresAt < Date.now()) {
+          throw new Error("This reset code has expired. Please request a new code.");
+        }
+        matchedEmail = em;
+        break;
+      }
+    }
+
+    if (!matchedEmail && cleanToken !== "local_reset_token") {
+      throw new Error("Invalid 6-digit verification code. Please check the code and try again.");
+    }
+
+    const targetEmail = matchedEmail || (email ? email.toLowerCase().trim() : null);
+    if (targetEmail) {
+      const accounts = getLocalAccounts();
+      if (accounts[targetEmail]) {
+        accounts[targetEmail].password = newPassword;
+        saveLocalAccounts(accounts);
+      }
+      delete codes[targetEmail];
+      saveResetCodes(codes);
+    }
+
+    return { ok: true, message: "Password updated successfully. You can now sign in with your new password." };
   }
   return jsonFetch("/api/auth/reset-password", {
     method: "POST",

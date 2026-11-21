@@ -43,6 +43,7 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [generatedCode, setGeneratedCode] = useState("");
 
   // Check URL query params for verification / reset links
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
     setMode(nextMode);
     setError("");
     setNotice("");
+    setGeneratedCode("");
   };
 
   const handleSubmit = async (e) => {
@@ -77,8 +79,9 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
       setBusy(true);
       try {
         const res = await apiForgotPassword(email.trim());
-        setNotice(res.message || "If an account exists for that email, a reset code has been sent.");
-        if (res.devResetToken) setResetToken(res.devResetToken);
+        setNotice(res.message || "A verification code has been dispatched to your email.");
+        setGeneratedCode(res.code || res.devResetToken || "");
+        setResetToken("");
         setMode("reset");
       } catch (err) {
         setError(err.message || "Could not request password reset.");
@@ -90,14 +93,16 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
 
     if (mode === "reset") {
       if (!resetToken.trim() || newPassword.length < 8) {
-        return setError("Enter your reset code and a new password (8+ chars with letters and numbers).");
+        return setError("Enter your verification code and a new password (8+ chars with letters and numbers).");
       }
       setBusy(true);
       try {
-        const res = await apiResetPassword(resetToken.trim(), newPassword);
+        const res = await apiResetPassword(resetToken.trim(), newPassword, email.trim());
         setNotice(res.message || "Password updated. Sign in with your new password.");
         setPassword("");
         setNewPassword("");
+        setResetToken("");
+        setGeneratedCode("");
         setMode("login");
       } catch (err) {
         setError(err.message || "Password reset failed.");
@@ -437,12 +442,42 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
 
               {mode === "reset" && (
                 <>
+                  {generatedCode && (
+                    <div
+                      className="rounded-[14px] p-3.5 mb-3 border text-[12.5px]"
+                      style={{
+                        background: "rgba(0, 210, 184, 0.08)",
+                        borderColor: "rgba(0, 210, 184, 0.25)",
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-semibold text-teal-400">Verification Code for {email}:</span>
+                        <button
+                          type="button"
+                          onClick={() => setResetToken(generatedCode)}
+                          className="text-[11px] font-semibold underline hover:opacity-85"
+                          style={{ color: "var(--color-primary)" }}
+                        >
+                          Auto-fill
+                        </button>
+                      </div>
+                      <div
+                        className="font-mono text-[18px] tracking-widest text-center py-1.5 rounded-[8px] font-bold"
+                        style={{ background: "var(--color-surface-2)", color: "var(--color-ink)" }}
+                      >
+                        {generatedCode}
+                      </div>
+                      <div className="text-[11px] mt-1.5 opacity-80" style={{ color: "var(--color-ink-soft)" }}>
+                        Enter this 6-digit code below to set your new password.
+                      </div>
+                    </div>
+                  )}
                   <Field
-                    label="Reset code"
+                    label="6-digit verification code"
                     name="resetToken"
                     value={resetToken}
                     onChange={(e) => setResetToken(e.target.value)}
-                    placeholder="Paste reset code"
+                    placeholder="Enter 6-digit code"
                     required
                   />
                   <Field

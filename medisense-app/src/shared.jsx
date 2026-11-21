@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useContext, createContext } from "react";
 import { motion, AnimatePresence, useReducedMotion, animate as fmAnimate } from "framer-motion";
-import { Check, X, AlertTriangle, Clock, CalendarClock, Sun, Moon } from "lucide-react";
+import { Check, X, AlertTriangle, Clock, CalendarClock, Sun, Moon, Eye, EyeOff } from "lucide-react";
 
 /* =========================================================================
    MediSense shared layer
@@ -589,24 +589,42 @@ export function SkeletonCard({ lines = 3 }) {
   );
 }
 
-export function Field({ label, value, onChange, placeholder, type = "text", autoComplete, required = false, name, step, min, max }) {
+export function Field({ label, value, onChange, placeholder, type = "text", autoComplete, required = false, name, step, min, max, className = "" }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const isPassword = type === "password";
+  const effectiveType = isPassword ? (showPassword ? "text" : "password") : type;
+
   return (
-    <label className="block">
-      <div className="text-[13px] font-medium mb-1" style={{ color: COLORS.ink }}>{label}</div>
-      <input
-        type={type}
-        name={name}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        required={required}
-        step={step}
-        min={min}
-        max={max}
-        className="w-full px-3 py-2.5 rounded-[10px] text-[14px] border outline-none focus:ring-2 focus:ring-offset-1 transition-shadow"
-        style={{ borderColor: COLORS.hair, "--tw-ring-color": COLORS.primary, background: COLORS.card, color: COLORS.ink }}
-      />
+    <label className={`block ${className}`}>
+      {label && <div className="text-[13px] font-medium mb-1" style={{ color: COLORS.ink }}>{label}</div>}
+      <div className="relative">
+        <input
+          type={effectiveType}
+          name={name}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          required={required}
+          step={step}
+          min={min}
+          max={max}
+          className={`w-full px-3 py-2.5 rounded-[10px] text-[14px] border outline-none focus:ring-2 focus:ring-offset-1 transition-shadow ${isPassword ? "pr-10" : ""}`}
+          style={{ borderColor: COLORS.hair, "--tw-ring-color": COLORS.primary, background: COLORS.card, color: COLORS.ink }}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setShowPassword((prev) => !prev)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-[6px] transition-colors focus:outline-none"
+            style={{ color: COLORS.inkSoft }}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+      </div>
     </label>
   );
 }
