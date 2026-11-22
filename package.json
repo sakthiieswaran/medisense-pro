@@ -8,5 +8,8 @@
     "dev": "npm --prefix medisense-app run dev",
     "test": "npm --prefix medisense-app test",
     "server": "npm --prefix medisense-app/server start"
+  },
+  "dependencies": {
+    "resend": "^6.39.0"
   }
 }

@@ -343,6 +343,48 @@ function resolveSmtpConfig(env) {
   };
 }
 
+function resolveResendConfig(env, nodeEnv) {
+  if (nodeEnv === "test" && env.ENABLE_TEST_LIVE_RESEND !== "true") {
+    return {
+      configured: false,
+      apiKey: null,
+      from: null,
+    };
+  }
+  const apiKey = String(env.RESEND_API_KEY || "").trim();
+  const rawFrom = String(env.RESEND_FROM_EMAIL || "").trim();
+
+  if (!apiKey) {
+    return {
+      configured: false,
+      apiKey: null,
+      from: null,
+    };
+  }
+
+  if (isPlaceholder(apiKey) || apiKey.length < 10) {
+    console.warn(
+      "[medisense-config] WARNING: RESEND_API_KEY appears invalid or placeholder; Resend email delivery will remain disabled."
+    );
+    return {
+      configured: false,
+      apiKey: null,
+      from: null,
+    };
+  }
+
+  let from = rawFrom || "MediSense <onboarding@resend.dev>";
+  if (from && !from.includes("<") && EMAIL_RE.test(from)) {
+    from = `MediSense <${from}>`;
+  }
+
+  return {
+    configured: true,
+    apiKey,
+    from,
+  };
+}
+
 /**
  * Validates and normalizes all server environment configuration.
  * Throws descriptive errors (never containing secrets) when invalid.
@@ -406,6 +448,7 @@ export function validateConfig(env = process.env, options = {}) {
   const supabase = resolveSupabaseConfig(env, isProd);
   const vapid = resolveVapidConfig(env, isProd);
   const smtp = resolveSmtpConfig(env);
+  const resend = options.resend !== undefined ? options.resend : resolveResendConfig(env, nodeEnv);
 
   return {
     nodeEnv,
@@ -422,6 +465,7 @@ export function validateConfig(env = process.env, options = {}) {
     supabase,
     vapid,
     smtp,
+    resend,
   };
 }
 
@@ -435,6 +479,8 @@ export function publicHealthConfig(config) {
     supabaseConfigured: Boolean(config.supabase?.configured),
     pushConfigured: Boolean(config.vapid?.configured || !config.isProd),
     smtpConfigured: Boolean(config.smtp?.configured),
+    resendConfigured: Boolean(config.resend?.configured),
+    emailConfigured: Boolean(config.resend?.configured || config.smtp?.configured),
     openFdaEnabled: Boolean(config.enableOpenFdaLookup),
   };
 }

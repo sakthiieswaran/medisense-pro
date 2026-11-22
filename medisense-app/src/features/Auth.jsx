@@ -79,8 +79,12 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
       setBusy(true);
       try {
         const res = await apiForgotPassword(email.trim());
-        setNotice(res.message || "A verification code has been dispatched to your email.");
-        setGeneratedCode(res.code || res.devResetToken || "");
+        setNotice(res.message || "A 6-digit verification code has been dispatched to your email.");
+        if (res.emailSent) {
+          setGeneratedCode("");
+        } else {
+          setGeneratedCode(res.code || res.devResetToken || "");
+        }
         setResetToken("");
         setMode("reset");
       } catch (err) {
@@ -451,7 +455,7 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
                       }}
                     >
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="font-semibold text-teal-400">Verification Code for {email}:</span>
+                        <span className="font-semibold text-teal-400">Local Dev Code for {email}:</span>
                         <button
                           type="button"
                           onClick={() => setResetToken(generatedCode)}
@@ -468,7 +472,7 @@ export default function LoginPage({ onAuthenticated, onOfflineDemo }) {
                         {generatedCode}
                       </div>
                       <div className="text-[11px] mt-1.5 opacity-80" style={{ color: "var(--color-ink-soft)" }}>
-                        Enter this 6-digit code below to set your new password.
+                        Email service unconfigured in this dev session. Use the local code above or check your email when live.
                       </div>
                     </div>
                   )}

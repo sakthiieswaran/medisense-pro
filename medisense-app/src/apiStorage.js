@@ -324,29 +324,21 @@ export async function forgotPassword(email) {
     saveResetCodes(codes);
 
     let emailSent = false;
-    const resendKey = import.meta.env.VITE_RESEND_API_KEY;
-    const web3formsKey = import.meta.env.VITE_WEB3FORMS_KEY;
 
-    if (resendKey) {
-      try {
-        await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${resendKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: "MediSense Security <onboarding@resend.dev>",
-            to: [cleanEmail],
-            subject: `MediSense Password Reset Code: ${code}`,
-            text: `Hello,\n\nYour 6-digit password reset verification code for MediSense is: ${code}\n\nThis code will expire in 15 minutes.\n\n— MediSense Health Team`,
-          }),
-        });
+    // 1. Dispatch via serverless endpoint (/api/send-reset-code)
+    try {
+      const serverlessRes = await fetch("/api/send-reset-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail, code }),
+      });
+      if (serverlessRes.ok) {
         emailSent = true;
-      } catch (e) {
-        console.warn("[medisense-email] Resend delivery error:", e);
       }
-    } else if (web3formsKey) {
+    } catch {}
+
+    const web3formsKey = import.meta.env.VITE_WEB3FORMS_KEY;
+    if (!emailSent && web3formsKey) {
       try {
         await fetch("https://api.web3forms.com/submit", {
           method: "POST",
@@ -370,7 +362,7 @@ export async function forgotPassword(email) {
       emailSent,
       devResetToken: code,
       message: emailSent
-        ? `A 6-digit password reset code has been sent directly to ${cleanEmail}.`
+        ? `A 6-digit password reset code has been sent directly to ${cleanEmail}. Check your inbox!`
         : `A 6-digit password reset code was generated for ${cleanEmail}. Check your inbox or enter the code below.`,
     };
   }

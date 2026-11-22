@@ -350,7 +350,7 @@ export function createApp(options = {}) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 
   const db = initDatabase(dbPath);
-  const mailer = options.mailer || createMailer(config.smtp);
+  const mailer = options.mailer || createMailer(config.smtp, config.resend);
 
   if (config.enableDemoAccounts) {
     seedDevDemoAccounts(db);
@@ -401,6 +401,25 @@ export function createApp(options = {}) {
         standardHeaders: true,
         legacyHeaders: false,
         message: { error: "Too many authentication attempts. Please wait 15 minutes and try again." },
+      });
+
+  const passwordResetLimiter = disableRateLimit
+    ? (req, res, next) => next()
+    : rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: nodeEnv === "production" ? 5 : 25,
+        standardHeaders: true,
+        legacyHeaders: false,
+        keyGenerator: (req) => {
+          const ip = ipKeyGenerator(req.ip || "127.0.0.1");
+          const email = req.body?.email ? String(req.body.email).toLowerCase().trim() : "";
+          return `${ip}_${email}`;
+        },
+        validate: { keyGeneratorIpFallback: false },
+        message: {
+          error: "Too many password reset requests. Please wait a few minutes before trying again.",
+          code: "RATE_LIMIT_EXCEEDED",
+        },
       });
 
   const aiLimiter = disableRateLimit
@@ -657,7 +676,7 @@ export function createApp(options = {}) {
 
   app.post(
     "/api/auth/forgot-password",
-    authLimiter,
+    passwordResetLimiter,
     [body("email").trim().isEmail().normalizeEmail().withMessage("Valid email is required.")],
     validateRequest,
     async (req, res) => {
@@ -673,9 +692,10 @@ export function createApp(options = {}) {
       const user = toPlain(db.prepare("SELECT * FROM users WHERE email = ?").get(normalized));
       let devToken;
       let deliveryFailed = false;
+      let deliveryReason = null;
 
       if (user) {
-        devToken = crypto.randomBytes(24).toString("hex");
+        devToken = crypto.randomInt(100000, 1000000).toString();
         const hash = sha256Hex(devToken);
         const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
         db.prepare("UPDATE users SET reset_token_hash = ?, reset_token_expires_at = ?, updated_at = ? WHERE id = ?").run(
@@ -694,17 +714,21 @@ export function createApp(options = {}) {
           });
           if (!mailResult?.sent) {
             deliveryFailed = true;
+            deliveryReason = mailResult?.reason;
           }
         } else if (!config.isProd) {
-          console.log(`[medisense-mail] Password reset token generated for ${normalized} (delivery skipped: SMTP not configured; tokens are never logged)`);
+          console.log(`[medisense-mail] Password reset OTP generated for ${normalized} (delivery skipped: mailer not configured; tokens are never logged)`);
         }
       }
 
       if (deliveryFailed) {
-        return res.status(502).json({
-          error: "Unable to send password reset email right now. Please try again later.",
+        const isRateLimit = deliveryReason === "RATE_LIMIT_EXCEEDED";
+        return res.status(isRateLimit ? 429 : 502).json({
+          error: isRateLimit
+            ? "Email delivery rate limit reached. Please wait a few minutes before trying again."
+            : "Unable to send password reset email right now. Please try again later.",
           emailSent: false,
-          code: "SMTP_DELIVERY_FAILED",
+          code: deliveryReason || "SMTP_DELIVERY_FAILED",
         });
       }
 
@@ -712,13 +736,13 @@ export function createApp(options = {}) {
         ? {
             ok: true,
             emailSent: true,
-            message: "If an account exists for that email, a password reset code has been sent.",
+            message: "If an account exists for that email, a 6-digit password reset code has been sent.",
           }
         : {
             ok: true,
             emailSent: false,
             message:
-              "SMTP is not configured on this server. In development, check the server console for the reset code.",
+              "Email service is not configured on this server. In development, check the server console for the reset code.",
           };
 
       if (devToken && !config.isProd && config.returnDevTokens) {
